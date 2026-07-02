@@ -1,0 +1,2 @@
+"""Promotion service placeholder."""
+

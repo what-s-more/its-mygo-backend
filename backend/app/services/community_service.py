@@ -1,0 +1,2 @@
+"""Community service placeholder."""
+
