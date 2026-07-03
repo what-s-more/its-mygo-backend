@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from app.schemas.address import AddressResponse
+
 
 class CartAddRequest(BaseModel):
     sku_id: int
@@ -35,6 +37,7 @@ class CheckoutRequest(BaseModel):
 
 class CheckoutResponse(BaseModel):
     items: list[CartItemResponse]
+    addresses: list[AddressResponse] = Field(default_factory=list)
     total_amount_cent: int
     discount_amount_cent: int = 0
     pay_amount_cent: int
@@ -43,6 +46,8 @@ class CheckoutResponse(BaseModel):
 class CreateOrderRequest(BaseModel):
     client_order_token: str = Field(min_length=1, max_length=80)
     shipping_address_id: int | None = None
+    coupon_id: int | None = None
+    source_post_id: int | None = None
     items: list[CheckoutItemRequest] | None = None
 
 
@@ -52,6 +57,20 @@ class CreateOrderResponse(BaseModel):
     order_ids: list[int]
     pay_amount_cent: int
     expire_at: str | None = None
+
+
+class ShippingAddressSnapshot(BaseModel):
+    receiver_name: str
+    receiver_mobile: str
+    province: str
+    city: str
+    district: str | None = None
+    detail_address: str
+
+
+class ShipOrderRequest(BaseModel):
+    logistics_company: str = Field(min_length=1, max_length=80)
+    tracking_no: str = Field(min_length=1, max_length=80)
 
 
 class OrderItemResponse(BaseModel):
@@ -74,6 +93,13 @@ class OrderResponse(BaseModel):
     status: str
     total_amount_cent: int
     pay_amount_cent: int
+    source_post_id: int | None = None
+    source_user_id: int | None = None
+    shipping_address: ShippingAddressSnapshot | None = None
+    logistics_company: str | None = None
+    tracking_no: str | None = None
+    shipped_at: str | None = None
+    received_at: str | None = None
     items: list[OrderItemResponse]
 
     model_config = {"from_attributes": True}
@@ -111,13 +137,17 @@ class ReviewResponse(BaseModel):
 
 
 class RefundCreateRequest(BaseModel):
+    reason_type: str = Field(default="other", max_length=50)
     reason: str = Field(min_length=1, max_length=255)
+    refund_amount_cent: int | None = Field(default=None, ge=1)
 
 
 class RefundResponse(BaseModel):
     id: int
     order_id: int
     user_id: int
+    refund_amount_cent: int
+    reason_type: str
     reason: str
     status: str
     origin_order_status: str

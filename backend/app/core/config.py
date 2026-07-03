@@ -25,6 +25,11 @@ class Settings(BaseSettings):
     cors_allow_origin_regex: str | None = r"^https?://(localhost|127\.0\.0\.1):\d+$"
     upload_dir: str = "uploads"
     upload_max_size_mb: int = 5
+    order_payment_expire_minutes: int = 15
+    order_auto_confirm_days: int = 7
+    celery_cancel_unpaid_interval_seconds: int = 300
+    celery_expire_coupon_interval_seconds: int = 300
+    celery_auto_confirm_interval_seconds: int = 3600
 
 
 @lru_cache

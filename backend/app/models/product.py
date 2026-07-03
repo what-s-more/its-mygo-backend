@@ -61,6 +61,21 @@ class Sku(Base):
     product: Mapped[Product] = relationship(back_populates="skus")
 
 
+class SkuStockLog(Base):
+    __tablename__ = "sku_stock_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("product.id"), index=True)
+    sku_id: Mapped[int] = mapped_column(ForeignKey("sku.id"), index=True)
+    before_stock: Mapped[int] = mapped_column(Integer)
+    change_quantity: Mapped[int] = mapped_column(Integer)
+    after_stock: Mapped[int] = mapped_column(Integer)
+    change_type: Mapped[str] = mapped_column(String(30), default="manual_adjust", index=True)
+    remark: Mapped[str] = mapped_column(String(255), default="")
+    admin_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class ProductImage(Base):
     __tablename__ = "product_image"
 

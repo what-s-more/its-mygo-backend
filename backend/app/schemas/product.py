@@ -39,6 +39,14 @@ class SkuCreateRequest(BaseModel):
     spec_values: dict = Field(default_factory=dict)
 
 
+class SkuUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    price_cent: int | None = Field(default=None, ge=0)
+    market_price_cent: int | None = Field(default=None, ge=0)
+    stock: int | None = Field(default=None, ge=0)
+    spec_values: dict | None = None
+
+
 class SkuResponse(BaseModel):
     id: int
     name: str
@@ -58,6 +66,14 @@ class ProductCreateRequest(BaseModel):
     skus: list[SkuCreateRequest]
 
 
+class ProductUpdateRequest(BaseModel):
+    category_id: int | None = None
+    name: str | None = Field(default=None, min_length=1, max_length=120)
+    description: str | None = None
+    cover_url: str | None = None
+    image_urls: list[str] | None = None
+
+
 class ProductListItem(BaseModel):
     id: int
     name: str
@@ -75,6 +91,7 @@ class ProductDetailResponse(BaseModel):
     name: str
     description: str
     cover_url: str | None = None
+    category_id: int | None = None
     status: str
     images: list[str]
     merchant: MerchantResponse
@@ -84,3 +101,25 @@ class ProductDetailResponse(BaseModel):
 
 class ProductStatusRequest(BaseModel):
     status: str
+
+
+class ProductAuditRequest(BaseModel):
+    approved: bool
+
+
+class ProductBatchRequest(BaseModel):
+    product_ids: list[int] = Field(min_length=1, max_length=100)
+
+
+class SkuStockLogResponse(BaseModel):
+    id: int
+    product_id: int
+    sku_id: int
+    before_stock: int
+    change_quantity: int
+    after_stock: int
+    change_type: str
+    remark: str
+    admin_id: int | None = None
+
+    model_config = {"from_attributes": True}

@@ -49,6 +49,7 @@ class AdminProfileResponse(BaseModel):
     real_name: str
     role: str
     merchant_id: int | None = None
+    is_active: bool
 
     model_config = {"from_attributes": True}
 
