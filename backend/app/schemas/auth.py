@@ -1,3 +1,5 @@
+from datetime import date
+
 from pydantic import BaseModel, Field
 
 
@@ -32,10 +34,21 @@ class UserProfileResponse(BaseModel):
     mobile: str
     nickname: str
     avatar_url: str | None = None
+    gender: str | None = None
+    birthday: date | None = None
+    email: str | None = None
     level: str
     points: int
 
     model_config = {"from_attributes": True}
+
+
+class UserProfileUpdateRequest(BaseModel):
+    nickname: str | None = Field(default=None, min_length=1, max_length=50)
+    avatar_url: str | None = Field(default=None, max_length=255)
+    gender: str | None = Field(default=None, max_length=20)
+    birthday: date | None = None
+    email: str | None = Field(default=None, max_length=120)
 
 
 class AdminLoginRequest(BaseModel):

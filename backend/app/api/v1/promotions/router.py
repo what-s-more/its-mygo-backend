@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 
 from app.core.dependencies import DbSession, get_current_user
 from app.models.user import User
-from app.schemas.promotion import CouponTemplateResponse, UserCouponResponse
+from app.schemas.promotion import CouponTemplateResponse, FullDiscountResponse, UserCouponResponse
 from app.services.promotion_service import promotion_service
 from app.utils.response import ApiResponse, success
 
@@ -10,8 +10,11 @@ router = APIRouter()
 
 
 @router.get("/coupons", response_model=ApiResponse[list[CouponTemplateResponse]])
-async def list_available_coupons(db: DbSession) -> ApiResponse[list[CouponTemplateResponse]]:
-    return success(await promotion_service.list_coupon_templates(db, only_available=True))
+async def list_available_coupons(
+    db: DbSession,
+    merchant_id: int | None = None,
+) -> ApiResponse[list[CouponTemplateResponse]]:
+    return success(await promotion_service.list_coupon_templates(db, only_available=True, merchant_id=merchant_id))
 
 
 @router.post("/coupons/{coupon_template_id}/claim", response_model=ApiResponse[UserCouponResponse])
@@ -30,3 +33,11 @@ async def list_my_coupons(
     status: str | None = None,
 ) -> ApiResponse[list[UserCouponResponse]]:
     return success(await promotion_service.list_user_coupons(db, current_user, status=status))
+
+
+@router.get("/full-discounts/active", response_model=ApiResponse[list[FullDiscountResponse]])
+async def list_active_full_discounts(
+    db: DbSession,
+    merchant_id: int | None = None,
+) -> ApiResponse[list[FullDiscountResponse]]:
+    return success(await promotion_service.list_full_discounts(db, only_available=True, merchant_id=merchant_id))

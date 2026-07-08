@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 
@@ -5,6 +7,12 @@ class MerchantCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     logo_url: str | None = None
     announcement: str | None = None
+
+
+class MerchantUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    logo_url: str | None = Field(default=None, max_length=255)
+    announcement: str | None = Field(default=None, max_length=255)
 
 
 class MerchantResponse(BaseModel):
@@ -16,10 +24,34 @@ class MerchantResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class MerchantFollowStatusResponse(BaseModel):
+    merchant_id: int
+    followed: bool
+    follower_count: int
+
+
+class MerchantFollowItemResponse(BaseModel):
+    merchant: MerchantResponse
+    followed_at: datetime
+    follower_count: int
+
+
+class ProductFavoriteStatusResponse(BaseModel):
+    product_id: int
+    favorited: bool
+    favorite_count: int
+
+
 class CategoryCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=50)
     parent_id: int | None = None
     sort_order: int = 0
+
+
+class CategoryUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=50)
+    parent_id: int | None = None
+    sort_order: int | None = None
 
 
 class CategoryResponse(BaseModel):
@@ -84,6 +116,12 @@ class ProductListItem(BaseModel):
     merchant_name: str
     sales_count: int
     tags: list[str] = []
+
+
+class ProductFavoriteItemResponse(BaseModel):
+    product: ProductListItem
+    favorited_at: datetime
+    favorite_count: int
 
 
 class ProductDetailResponse(BaseModel):

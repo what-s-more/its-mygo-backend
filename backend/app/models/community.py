@@ -12,6 +12,7 @@ class CommunityPost(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
     type: Mapped[str] = mapped_column(String(30), default="normal", index=True)
+    section: Mapped[str] = mapped_column(String(30), default="square", index=True)
     title: Mapped[str] = mapped_column(String(120))
     content: Mapped[str] = mapped_column(Text, default="")
     image_urls: Mapped[str] = mapped_column(Text, default="[]")

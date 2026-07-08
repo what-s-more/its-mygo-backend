@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=("../.env", ".env"), env_file_encoding="utf-8", extra="ignore")
 
     app_name: str = "its-mygo"
     app_env: str = "development"
@@ -30,6 +30,14 @@ class Settings(BaseSettings):
     celery_cancel_unpaid_interval_seconds: int = 300
     celery_expire_coupon_interval_seconds: int = 300
     celery_auto_confirm_interval_seconds: int = 3600
+    alipay_enabled: bool = False
+    alipay_gateway_url: str = "https://openapi-sandbox.dl.alipaydev.com/gateway.do"
+    alipay_app_id: str | None = None
+    alipay_app_private_key: str | None = None
+    alipay_public_key: str | None = None
+    alipay_notify_url: str | None = None
+    alipay_subject_prefix: str = "一次买够订单"
+    alipay_request_timeout_seconds: int = 30
 
 
 @lru_cache

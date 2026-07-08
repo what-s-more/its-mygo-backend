@@ -13,6 +13,8 @@ class CouponTemplate(Base):
     name: Mapped[str] = mapped_column(String(80))
     scope_type: Mapped[str] = mapped_column(String(20), default="all", index=True)
     scope_ids: Mapped[str] = mapped_column(String(500), default="[]")
+    owner_merchant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    created_by_admin_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     discount_type: Mapped[str] = mapped_column(String(20), default="amount")
     discount_value: Mapped[int] = mapped_column(Integer)
     min_amount_cent: Mapped[int] = mapped_column(Integer, default=0)
@@ -44,3 +46,25 @@ class UserCoupon(Base):
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     template: Mapped[CouponTemplate] = relationship(back_populates="user_coupons")
+
+
+class FullDiscountActivity(Base):
+    __tablename__ = "full_discount_activity"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    scope_type: Mapped[str] = mapped_column(String(20), default="all", index=True)
+    scope_ids: Mapped[str] = mapped_column(String(500), default="[]")
+    owner_merchant_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
+    created_by_admin_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    min_amount_cent: Mapped[int] = mapped_column(Integer, default=0)
+    discount_amount_cent: Mapped[int] = mapped_column(Integer, default=0)
+    status: Mapped[str] = mapped_column(String(30), default="active", index=True)
+    valid_from: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )

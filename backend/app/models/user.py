@@ -1,6 +1,6 @@
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, func
+from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -14,6 +14,9 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     nickname: Mapped[str] = mapped_column(String(50))
     avatar_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    gender: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    birthday: Mapped[date | None] = mapped_column(Date, nullable=True)
+    email: Mapped[str | None] = mapped_column(String(120), nullable=True)
     level: Mapped[str] = mapped_column(String(20), default="normal")
     points: Mapped[int] = mapped_column(Integer, default=0)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
@@ -36,6 +39,30 @@ class PointsLog(Base):
     source_id: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
     description: Mapped[str] = mapped_column(String(255), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class UserSignIn(Base):
+    __tablename__ = "user_sign_in"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
+    sign_date: Mapped[date] = mapped_column(Date, index=True)
+    streak_days: Mapped[int] = mapped_column(Integer, default=1)
+    reward_points: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class PlatformSetting(Base):
+    __tablename__ = "platform_setting"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    key: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    value_json: Mapped[str] = mapped_column(Text)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+    )
 
 
 class AdminUser(Base):
@@ -94,7 +121,10 @@ class UserAddress(Base):
     province: Mapped[str] = mapped_column(String(50))
     city: Mapped[str] = mapped_column(String(50))
     district: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    street: Mapped[str | None] = mapped_column(String(80), nullable=True)
     detail_address: Mapped[str] = mapped_column(String(255))
+    postal_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    address_tag: Mapped[str | None] = mapped_column(String(30), nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(

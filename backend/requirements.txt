@@ -11,6 +11,7 @@ python-jose[cryptography]
 passlib[bcrypt]
 bcrypt
 python-multipart
+alipay-sdk-python
 httpx
 pytest
 pytest-asyncio

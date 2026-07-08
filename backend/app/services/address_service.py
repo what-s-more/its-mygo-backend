@@ -29,7 +29,10 @@ class AddressService:
             province=payload.province,
             city=payload.city,
             district=payload.district,
+            street=payload.street,
             detail_address=payload.detail_address,
+            postal_code=payload.postal_code,
+            address_tag=payload.address_tag,
             is_default=payload.is_default or not has_address,
         )
         if address.is_default:

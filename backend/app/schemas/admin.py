@@ -120,3 +120,19 @@ class AdminOperationLogResponse(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class MemberLevelRule(BaseModel):
+    level: str = Field(min_length=1, max_length=30)
+    name: str = Field(min_length=1, max_length=30)
+    threshold_cent: int = Field(ge=0)
+    benefits: list[str] = Field(default_factory=list, max_length=20)
+
+
+class MemberPointsConfig(BaseModel):
+    level_rules: list[MemberLevelRule] = Field(min_length=1, max_length=10)
+    sign_in_base_points: int = Field(default=2, ge=0, le=1000)
+    sign_in_streak_increment: int = Field(default=1, ge=0, le=1000)
+    sign_in_max_points: int = Field(default=10, ge=0, le=10000)
+    points_to_yuan_rate: int = Field(default=100, ge=1)
+    max_points_discount_percent: int = Field(default=10, ge=0, le=100)

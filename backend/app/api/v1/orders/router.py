@@ -46,6 +46,40 @@ async def list_orders(
     )
 
 
+@router.get("/refunds", response_model=ApiResponse[dict])
+async def list_refunds(
+    db: DbSession,
+    current_user: User = Depends(get_current_user),
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> ApiResponse[dict]:
+    refunds, total = await order_service.list_user_refunds(
+        db,
+        current_user,
+        status=status,
+        page=page,
+        page_size=page_size,
+    )
+    return success(
+        {
+            "list": [refund.model_dump() for refund in refunds],
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+        }
+    )
+
+
+@router.get("/refunds/{refund_id}", response_model=ApiResponse[RefundResponse])
+async def get_refund(
+    refund_id: int,
+    db: DbSession,
+    current_user: User = Depends(get_current_user),
+) -> ApiResponse[RefundResponse]:
+    return success(await order_service.get_user_refund(db, current_user, refund_id))
+
+
 @router.get("/{order_id}", response_model=ApiResponse[OrderResponse])
 async def get_order(
     order_id: int,

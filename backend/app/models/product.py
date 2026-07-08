@@ -19,6 +19,24 @@ class Merchant(Base):
     products: Mapped[list["Product"]] = relationship(back_populates="merchant")
 
 
+class MerchantFollow(Base):
+    __tablename__ = "merchant_follow"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    merchant_id: Mapped[int] = mapped_column(ForeignKey("merchant.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ProductFavorite(Base):
+    __tablename__ = "product_favorite"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(Integer, index=True)
+    product_id: Mapped[int] = mapped_column(ForeignKey("product.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
 class Category(Base):
     __tablename__ = "category"
 

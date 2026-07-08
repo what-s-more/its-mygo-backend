@@ -7,7 +7,10 @@ class AddressBase(BaseModel):
     province: str = Field(min_length=1, max_length=50)
     city: str = Field(min_length=1, max_length=50)
     district: str | None = Field(default=None, max_length=50)
+    street: str | None = Field(default=None, max_length=80)
     detail_address: str = Field(min_length=1, max_length=255)
+    postal_code: str | None = Field(default=None, max_length=20)
+    address_tag: str | None = Field(default=None, max_length=30)
     is_default: bool = False
 
 
@@ -21,7 +24,10 @@ class AddressUpdateRequest(BaseModel):
     province: str | None = Field(default=None, min_length=1, max_length=50)
     city: str | None = Field(default=None, min_length=1, max_length=50)
     district: str | None = Field(default=None, max_length=50)
+    street: str | None = Field(default=None, max_length=80)
     detail_address: str | None = Field(default=None, min_length=1, max_length=255)
+    postal_code: str | None = Field(default=None, max_length=20)
+    address_tag: str | None = Field(default=None, max_length=30)
     is_default: bool | None = None
 
 

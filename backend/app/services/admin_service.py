@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from app.core.exceptions import AppException, ForbiddenException
 from app.core.security import hash_password
 from app.models.order import Order
+from app.models.order import Refund
 from app.models.product import Merchant, Product
 from app.models.user import AdminUser, MerchantApplication, User
 from app.schemas.admin import (
@@ -206,7 +207,7 @@ class AdminService:
             merchant = Merchant(
                 name=application.merchant_name,
                 logo_url=application.logo_url,
-                announcement=application.announcement,
+                announcement=None,
             )
             db.add(merchant)
             await db.flush()
@@ -295,6 +296,12 @@ class AdminService:
     async def assert_can_operate_order(self, db: AsyncSession, admin: AdminUser, order_id: int) -> None:
         await self.get_order(db, admin, order_id)
 
+    async def assert_can_operate_refund(self, db: AsyncSession, admin: AdminUser, refund_id: int) -> None:
+        refund = await db.get(Refund, refund_id)
+        if refund is None:
+            raise AppException(40004, "售后单不存在", 404)
+        await self.get_order(db, admin, refund.order_id)
+
     async def get_dashboard_summary(self, db: AsyncSession, admin: AdminUser) -> DashboardSummaryResponse:
         order_statement = self._order_scope(select(Order), admin)
         effective_statement = order_statement.where(Order.status.in_(self.effective_order_statuses))
@@ -335,14 +342,26 @@ class AdminService:
         if admin.role == "merchant_operator":
             if admin.merchant_id is None:
                 raise ForbiddenException("商家管理员未绑定店铺")
-            return statement.where(Order.merchant_id == admin.merchant_id)
+            return statement.where(
+                Order.merchant_id == admin.merchant_id,
+                Order.status != "group_pending",
+            )
         return statement
 
     async def _count(self, db: AsyncSession, statement: Select) -> int:
         return await db.scalar(select(func.count()).select_from(statement.order_by(None).subquery())) or 0
 
-    async def _ensure_merchant_name_available(self, db: AsyncSession, merchant_name: str) -> None:
-        existing_result = await db.execute(select(Merchant.id).where(Merchant.name == merchant_name))
+    async def _ensure_merchant_name_available(
+        self,
+        db: AsyncSession,
+        merchant_name: str,
+        *,
+        exclude_merchant_id: int | None = None,
+    ) -> None:
+        statement = select(Merchant.id).where(Merchant.name == merchant_name)
+        if exclude_merchant_id is not None:
+            statement = statement.where(Merchant.id != exclude_merchant_id)
+        existing_result = await db.execute(statement)
         if existing_result.scalar_one_or_none() is not None:
             raise AppException(40005, "店铺名称已存在")
 

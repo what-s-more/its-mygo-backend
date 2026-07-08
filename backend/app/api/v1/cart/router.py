@@ -3,7 +3,15 @@ from fastapi import Depends
 
 from app.core.dependencies import DbSession, get_current_user
 from app.models.user import User
-from app.schemas.order import CartAddRequest, CartItemResponse, CartUpdateRequest, CheckoutRequest, CheckoutResponse
+from app.schemas.order import (
+    CartAddRequest,
+    CartBatchDeleteRequest,
+    CartBatchUpdateRequest,
+    CartItemResponse,
+    CartUpdateRequest,
+    CheckoutRequest,
+    CheckoutResponse,
+)
 from app.services.order_service import order_service
 from app.utils.response import ApiResponse, success
 
@@ -32,6 +40,24 @@ async def update_cart_item(
     current_user: User = Depends(get_current_user),
 ) -> ApiResponse[list[CartItemResponse]]:
     return success(await order_service.update_cart_item(db, current_user, sku_id, payload))
+
+
+@router.patch("/batch", response_model=ApiResponse[list[CartItemResponse]])
+async def batch_update_cart_items(
+    payload: CartBatchUpdateRequest,
+    db: DbSession,
+    current_user: User = Depends(get_current_user),
+) -> ApiResponse[list[CartItemResponse]]:
+    return success(await order_service.batch_update_cart_items(db, current_user, payload))
+
+
+@router.delete("", response_model=ApiResponse[list[CartItemResponse]])
+async def batch_delete_cart_items(
+    payload: CartBatchDeleteRequest,
+    db: DbSession,
+    current_user: User = Depends(get_current_user),
+) -> ApiResponse[list[CartItemResponse]]:
+    return success(await order_service.batch_delete_cart_items(db, current_user, payload))
 
 
 @router.delete("/{sku_id}", response_model=ApiResponse[list[CartItemResponse]])

@@ -11,6 +11,7 @@ class AuthorSummary(BaseModel):
 
 class PostCreateRequest(BaseModel):
     type: str = Field(default="normal", pattern="^(normal|grass|merchant_ad)$")
+    section: str = Field(default="square", pattern="^(square|grass|merchant|help|experience)$")
     title: str = Field(min_length=1, max_length=120)
     content: str = Field(default="", max_length=5000)
     image_urls: list[str] = Field(default_factory=list)
@@ -42,6 +43,7 @@ class CommentResponse(BaseModel):
 class PostResponse(BaseModel):
     id: int
     type: str
+    section: str
     title: str
     content: str
     image_urls: list[str]
@@ -52,6 +54,20 @@ class PostResponse(BaseModel):
     like_count: int
     comment_count: int
     created_at: datetime
+
+
+class CommunityUserProfileResponse(BaseModel):
+    user: AuthorSummary
+    post_count: int
+    grass_post_count: int
+    comment_count: int
+    like_received_count: int
+    recent_posts: list[PostResponse]
+
+
+class TopicResponse(BaseModel):
+    name: str
+    post_count: int
 
 
 class LikeToggleResponse(BaseModel):

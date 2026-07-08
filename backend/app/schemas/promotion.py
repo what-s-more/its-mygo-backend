@@ -43,6 +43,8 @@ class CouponTemplateResponse(BaseModel):
     name: str
     scope_type: str
     scope_ids: list[int]
+    owner_merchant_id: int | None = None
+    created_by_admin_id: int | None = None
     discount_type: str
     discount_value: int
     min_amount_cent: int
@@ -65,3 +67,39 @@ class UserCouponResponse(BaseModel):
     claimed_at: datetime
     used_at: datetime | None = None
     template: CouponTemplateResponse
+
+
+class FullDiscountCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=80)
+    scope_type: str = Field(default="all", pattern="^(all|platform|merchant|category|product|sku)$")
+    scope_ids: list[int] = Field(default_factory=list)
+    min_amount_cent: int = Field(ge=0)
+    discount_amount_cent: int = Field(gt=0)
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+
+
+class FullDiscountUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    scope_type: str | None = Field(default=None, pattern="^(all|platform|merchant|category|product|sku)$")
+    scope_ids: list[int] | None = None
+    min_amount_cent: int | None = Field(default=None, ge=0)
+    discount_amount_cent: int | None = Field(default=None, gt=0)
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+
+
+class FullDiscountResponse(BaseModel):
+    id: int
+    name: str
+    scope_type: str
+    scope_ids: list[int]
+    owner_merchant_id: int | None = None
+    created_by_admin_id: int | None = None
+    min_amount_cent: int
+    discount_amount_cent: int
+    status: str
+    valid_from: datetime | None = None
+    valid_to: datetime | None = None
+
+    model_config = {"from_attributes": True}
