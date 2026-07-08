@@ -129,6 +129,69 @@ async def test_merchant_admin_cannot_operate_other_merchant_order() -> None:
 
 
 @pytest.mark.asyncio
+async def test_merchant_admin_can_only_process_own_refunds() -> None:
+    await init_db()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        admin_token = await create_admin_token(client)
+        user_token = await create_user_token(client)
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        user_headers = {"Authorization": f"Bearer {user_token}"}
+        sku_id = await create_on_sale_sku(client, admin_headers)
+
+        await client.post("/api/v1/cart", json={"sku_id": sku_id, "quantity": 1}, headers=user_headers)
+        order_response = await client.post(
+            "/api/v1/orders",
+            json={"client_order_token": uuid4().hex},
+            headers=user_headers,
+        )
+        payment_id = order_response.json()["data"]["payment_id"]
+        order_id = order_response.json()["data"]["order_ids"][0]
+        await client.post(f"/api/v1/payments/{payment_id}/pay", headers=user_headers)
+
+        order_detail_response = await client.get(f"/api/v1/admin/orders/{order_id}", headers=admin_headers)
+        order_detail = order_detail_response.json()["data"]
+        merchant_id = order_detail["merchant_id"]
+        order_item_id = order_detail["items"][0]["id"]
+
+        await client.post(
+            f"/api/v1/admin/orders/{order_id}/ship",
+            json={"logistics_company": "商家配送", "tracking_no": "REFUND-MERCHANT"},
+            headers=admin_headers,
+        )
+        await client.post(f"/api/v1/orders/{order_id}/confirm", headers=user_headers)
+        refund_response = await client.post(
+            f"/api/v1/orders/{order_id}/refunds",
+            json={"order_item_id": order_item_id, "quantity": 1, "reason": "商家处理售后测试"},
+            headers=user_headers,
+        )
+        assert refund_response.status_code == 200
+        refund_id = refund_response.json()["data"]["id"]
+
+        merchant_token = await create_merchant_admin_token(client, merchant_id)
+        merchant_headers = {"Authorization": f"Bearer {merchant_token}"}
+        merchant_refunds_response = await client.get("/api/v1/admin/refunds", headers=merchant_headers)
+        assert merchant_refunds_response.status_code == 200
+        assert any(refund["id"] == refund_id for refund in merchant_refunds_response.json()["data"]["list"])
+
+        other_merchant_token = await create_merchant_admin_token(client, merchant_id + 999999)
+        other_merchant_headers = {"Authorization": f"Bearer {other_merchant_token}"}
+        other_refunds_response = await client.get("/api/v1/admin/refunds", headers=other_merchant_headers)
+        assert other_refunds_response.status_code == 200
+        assert all(refund["id"] != refund_id for refund in other_refunds_response.json()["data"]["list"])
+
+        forbidden_approve_response = await client.post(
+            f"/api/v1/admin/refunds/{refund_id}/approve",
+            headers=other_merchant_headers,
+        )
+        assert forbidden_approve_response.status_code == 404
+
+        approve_response = await client.post(f"/api/v1/admin/refunds/{refund_id}/approve", headers=merchant_headers)
+        assert approve_response.status_code == 200
+        assert approve_response.json()["data"]["status"] == "approved"
+
+
+@pytest.mark.asyncio
 async def test_admin_operation_logs_for_order_ship() -> None:
     await init_db()
     transport = ASGITransport(app=app)
@@ -232,6 +295,9 @@ async def test_merchant_register_login_audit_then_gets_merchant_permission() -> 
         audited = audit_response.json()["data"]
         assert audited["status"] == "approved"
         assert audited["merchant_id"] is not None
+        merchant_public_response = await client.get(f"/api/v1/merchants/{audited['merchant_id']}")
+        assert merchant_public_response.status_code == 200
+        assert merchant_public_response.json()["data"]["announcement"] is None
 
         login_after_audit_response = await client.post(
             "/api/v1/admin/auth/login",
@@ -243,6 +309,24 @@ async def test_merchant_register_login_audit_then_gets_merchant_permission() -> 
         assert merchant_me_response.json()["data"]["role"] == "merchant_operator"
         assert merchant_me_response.json()["data"]["merchant_id"] == audited["merchant_id"]
         merchant_admin_id = merchant_me_response.json()["data"]["id"]
+
+        profile_response = await client.get("/api/v1/admin/merchant/profile", headers=merchant_headers)
+        assert profile_response.status_code == 200
+        assert profile_response.json()["data"]["name"] == merchant_name
+
+        updated_merchant_name = f"{merchant_name}-Updated"
+        update_profile_response = await client.put(
+            "/api/v1/admin/merchant/profile",
+            json={
+                "name": updated_merchant_name,
+                "logo_url": "/static/uploads/shop-logo.jpg",
+                "announcement": "店铺公告由商家审核通过后自行维护",
+            },
+            headers=merchant_headers,
+        )
+        assert update_profile_response.status_code == 200
+        assert update_profile_response.json()["data"]["name"] == updated_merchant_name
+        assert update_profile_response.json()["data"]["announcement"] == "店铺公告由商家审核通过后自行维护"
 
         product_response = await client.post(
             "/api/v1/admin/products",

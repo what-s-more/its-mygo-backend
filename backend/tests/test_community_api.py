@@ -7,7 +7,7 @@ from app.core.security import hash_password
 from app.db.session import AsyncSessionLocal, init_db
 from app.main import app
 from app.models.user import AdminUser
-from backend.tests.test_order_api import create_on_sale_sku
+from backend.tests.test_order_api import create_merchant_admin_token, create_on_sale_sku, create_on_sale_sku_with_merchant
 
 
 async def create_user_token(client: AsyncClient) -> str:
@@ -186,12 +186,138 @@ async def test_grass_post_source_order_rewards_author_points() -> None:
         assert buyer_confirm_response.json()["data"]["source_post_id"] == post_id
 
         author_after = await client.get("/api/v1/auth/me", headers=author_headers)
-        assert author_after.json()["data"]["points"] == before_points + 10
+        assert author_after.json()["data"]["points"] == before_points + 19
+        buyer_after = await client.get("/api/v1/auth/me", headers=buyer_headers)
+        assert buyer_after.json()["data"]["points"] == 19
         points_logs = await client.get("/api/v1/users/points/logs", headers=author_headers)
         assert points_logs.status_code == 200
         assert any(
             log["source_type"] == "grass_conversion"
             and log["source_id"] == buyer_order_id
-            and log["change_points"] == 10
+            and log["change_points"] == 19
             for log in points_logs.json()["data"]["list"]
         )
+        buyer_points_logs = await client.get("/api/v1/users/points/logs", headers=buyer_headers)
+        assert any(
+            log["source_type"] == "grass_conversion_buyer"
+            and log["source_id"] == buyer_order_id
+            and log["change_points"] == 19
+            for log in buyer_points_logs.json()["data"]["list"]
+        )
+
+
+@pytest.mark.asyncio
+async def test_admin_merchant_post_and_square_section_lists_all_posts() -> None:
+    await init_db()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        admin_token = await create_admin_token(client)
+        user_token = await create_user_token(client)
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
+        user_headers = {"Authorization": f"Bearer {user_token}"}
+        sku_id, merchant_id = await create_on_sale_sku_with_merchant(client, admin_headers, 2000)
+        merchant_token = await create_merchant_admin_token(client, merchant_id)
+        merchant_headers = {"Authorization": f"Bearer {merchant_token}"}
+
+        product_response = await client.get("/api/v1/admin/products", headers=merchant_headers)
+        product_id = product_response.json()["data"]["list"][0]["id"]
+
+        merchant_post_response = await client.post(
+            "/api/v1/admin/community/posts",
+            json={
+                "type": "normal",
+                "section": "square",
+                "title": "商家动态",
+                "content": "商家端发布的社区内容",
+                "product_ids": [product_id],
+            },
+            headers=merchant_headers,
+        )
+        assert merchant_post_response.status_code == 200
+        merchant_post = merchant_post_response.json()["data"]
+        assert merchant_post["type"] == "merchant_ad"
+        assert merchant_post["section"] == "merchant"
+        assert merchant_post["product_ids"] == [product_id]
+
+        help_post_response = await client.post(
+            "/api/v1/community/posts",
+            json={
+                "type": "normal",
+                "section": "help",
+                "title": "求助帖",
+                "content": "用户求助内容",
+            },
+            headers=user_headers,
+        )
+        assert help_post_response.status_code == 200
+        help_post_id = help_post_response.json()["data"]["id"]
+
+        square_response = await client.get("/api/v1/community/posts", params={"section": "square"})
+        square_ids = {post["id"] for post in square_response.json()["data"]["list"]}
+        assert merchant_post["id"] in square_ids
+        assert help_post_id in square_ids
+
+        merchant_section_response = await client.get("/api/v1/community/posts", params={"section": "merchant"})
+        merchant_ids = {post["id"] for post in merchant_section_response.json()["data"]["list"]}
+        assert merchant_post["id"] in merchant_ids
+        assert help_post_id not in merchant_ids
+
+
+@pytest.mark.asyncio
+async def test_community_topics_and_user_profile() -> None:
+    await init_db()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        user_token = await create_user_token(client)
+        user_headers = {"Authorization": f"Bearer {user_token}"}
+        user_response = await client.get("/api/v1/auth/me", headers=user_headers)
+        user_id = user_response.json()["data"]["id"]
+
+        first_response = await client.post(
+            "/api/v1/community/posts",
+            json={
+                "type": "normal",
+                "section": "experience",
+                "title": "话题测试一",
+                "content": "开箱体验内容",
+                "topic_tags": ["开箱", "体验"],
+            },
+            headers=user_headers,
+        )
+        assert first_response.status_code == 200
+        first_post_id = first_response.json()["data"]["id"]
+        second_response = await client.post(
+            "/api/v1/community/posts",
+            json={
+                "type": "normal",
+                "section": "help",
+                "title": "话题测试二",
+                "content": "求助内容",
+                "topic_tags": ["体验"],
+            },
+            headers=user_headers,
+        )
+        assert second_response.status_code == 200
+
+        topics_response = await client.get("/api/v1/community/topics")
+        assert topics_response.status_code == 200
+        topics = {topic["name"]: topic["post_count"] for topic in topics_response.json()["data"]}
+        assert topics["体验"] >= 2
+        assert topics["开箱"] >= 1
+
+        topic_posts_response = await client.get("/api/v1/community/posts", params={"topic": "开箱"})
+        assert topic_posts_response.status_code == 200
+        topic_post_ids = {post["id"] for post in topic_posts_response.json()["data"]["list"]}
+        assert first_post_id in topic_post_ids
+
+        profile_response = await client.get(f"/api/v1/community/users/{user_id}")
+        assert profile_response.status_code == 200
+        profile = profile_response.json()["data"]
+        assert profile["user"]["id"] == user_id
+        assert profile["post_count"] >= 2
+        assert profile["comment_count"] == 0
+        assert any(post["id"] == first_post_id for post in profile["recent_posts"])
+
+        user_posts_response = await client.get(f"/api/v1/community/users/{user_id}/posts", params={"topic": "体验"})
+        assert user_posts_response.status_code == 200
+        assert user_posts_response.json()["data"]["total"] >= 2

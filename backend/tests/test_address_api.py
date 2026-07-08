@@ -27,7 +27,10 @@ def address_payload(name: str, *, is_default: bool = False) -> dict:
         "province": "广东省",
         "city": "深圳市",
         "district": "南山区",
+        "street": "粤海街道",
         "detail_address": f"{name}测试路 1 号",
+        "postal_code": "518000",
+        "address_tag": "家",
         "is_default": is_default,
     }
 
@@ -44,6 +47,9 @@ async def test_address_crud_and_default_flow() -> None:
         assert first_response.status_code == 200
         first_address = first_response.json()["data"]
         assert first_address["is_default"] is True
+        assert first_address["street"] == "粤海街道"
+        assert first_address["postal_code"] == "518000"
+        assert first_address["address_tag"] == "家"
 
         second_response = await client.post(
             "/api/v1/addresses",
