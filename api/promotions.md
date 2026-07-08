@@ -1,47 +1,73 @@
-# 促销
+# 促销接口
 
-## 当前实现范围
+## 当前范围
 
-- 已实现基础优惠券模板、领券、我的优惠券、结算抵扣、下单后标记已使用。
-- 管理端已提供创建和查看优惠券模板接口。
-- 当前只支持一张用户券参与结算。
-- 已支持优惠券适用范围：全平台、指定店铺、指定分类、指定商品、指定 SKU。
-- 已支持管理端编辑/停用优惠券模板、按用户 ID 批量发券、手动触发过期用户券作废，以及 Celery 过期任务入口和 beat 定时配置。
-- 当前暂未实现满减、限时特价和拼团。
+当前已实现优惠券、满减、拼团、积分抵扣和会员积分配置。限时价、营销标签仍属于后续全量开发任务。
+
+正常用户下单的价格链为：
+
+1. 商品销售价，后续可接入限时价；拼团订单使用独立拼团价。
+2. 满减活动：一个订单只能选择一种满减。
+3. 用户优惠券：一个订单只能选择一张用户券。
+4. 积分抵扣：积分类似账户余额，可与任何优惠叠加，但受平台配置的单笔抵扣上限限制。
+5. 支付宝沙箱支付剩余金额。
+
+拼团订单是独立购买链路：不进入购物车，不叠加满减或优惠券，不参与社区种草奖励；仅允许使用积分抵扣后进入支付宝沙箱支付。拼团接口详见 `docs/api/group-buy.md`。
+
+前端不能自行拼优惠金额，只能展示后端 `checkout` 返回的可选项和金额明细。
+
+## 适用范围
+
+内部 `scope_type` 统一使用：
+
+| 值 | 含义 | scope_ids |
+|---|---|---|
+| all | 全平台 | 空数组 |
+| platform | 平台通用，兼容旧数据 | 空数组 |
+| category | 指定分类 | 分类 ID |
+| merchant | 指定店铺 | 店铺 ID |
+| product | 指定商品 | 商品 ID |
+| sku | 指定 SKU | SKU ID |
+
+权限规则：
+
+- 平台运营可创建和管理：全平台、分类、商家、商品、SKU 范围的优惠券和满减。
+- 商家运营可创建和管理：本店铺、本店商品、本店 SKU 范围的优惠券和满减。
+- 商家后台的 `GET /admin/promotions/coupons` 和 `GET /admin/promotions/full-discounts` 只返回该商家自己创建的优惠券/满减，即 `owner_merchant_id` 等于当前商家店铺 ID。
+- 商家不能创建、编辑或停用平台创建的促销，即使该促销范围是当前店铺、当前商品或当前 SKU。
+- 平台创建并投放到某店铺的促销会在用户端可领取/可使用列表出现，但不会出现在商家后台的“本店优惠券/本店满减”活动管理列表中。
+- 商家不能创建或停用其它店铺、商品、SKU 的促销。
+- 用户端店铺页传 `merchant_id` 时，只展示平台通用和当前店铺相关促销，不展示其它店铺专属促销。
 
 ## 优惠券
 
-- `GET /promotions/coupons` 可领取优惠券列表
-- `POST /promotions/coupons/{id}/claim` 领取优惠券
-- `GET /promotions/my-coupons` 我的优惠券
-- `GET /admin/promotions/coupons` 管理端优惠券模板列表
-- `POST /admin/promotions/coupons` 管理端创建优惠券模板
-- `PUT /admin/promotions/coupons/{id}` 管理端编辑优惠券模板
-- `POST /admin/promotions/coupons/{id}/disable` 管理端停用优惠券模板
-- `POST /admin/promotions/coupons/{id}/batch-grant` 管理端按用户 ID 批量发券
-- `POST /admin/promotions/coupons/expire` 管理端手动触发过期用户券作废
+### `GET /promotions/coupons`
 
-### 优惠券字段
+获取当前可领取优惠券模板。
 
-| 字段 | 类型 | 说明 |
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| merchant_id | number | 否 | 店铺页使用；只返回平台通用和该店铺相关券 |
+
+### `POST /promotions/coupons/{id}/claim`
+
+用户领取优惠券。后端校验模板状态、有效期、库存和单用户限领。
+
+### `GET /promotions/my-coupons`
+
+查询当前用户优惠券。
+
+查询参数：
+
+| 参数 | 类型 | 说明 |
 |---|---|---|
-| id | number | 优惠券模板 ID 或用户券 ID |
-| name | string | 名称 |
-| scope_type | string | 适用范围：`all`/`platform`/`merchant`/`category`/`product`/`sku` |
-| scope_ids | array | 范围 ID 列表；`all`/`platform` 可为空 |
-| discount_type | string | amount/percent |
-| discount_value | number | `amount` 时为减免金额分值；`percent` 时为折扣百分比，如 80 表示 8 折 |
-| min_amount_cent | number | 使用门槛 |
-| total_quantity | number | 总库存，0 表示不限制 |
-| claimed_quantity | number | 已领取数量 |
-| per_user_limit | number | 单用户领取上限 |
-| status | string | 模板状态 active/disabled；用户券状态 unused/used/expired/void |
-| valid_from | string | 可选，开始时间 |
-| valid_to | string | 可选，结束时间 |
+| status | string | 可选，`unused/used/expired/void` |
 
-### POST `/admin/promotions/coupons`
+### `POST /admin/promotions/coupons`
 
-创建优惠券模板。平台运营可创建任意范围优惠券；商家运营只能创建本店 `merchant` 范围优惠券。
+创建优惠券模板。
 
 ```json
 {
@@ -58,146 +84,140 @@
 }
 ```
 
-范围规则：
+字段：
 
-- `all` 和 `platform` 表示全平台可用，`scope_ids` 可为空数组。
-- `merchant` 表示指定店铺可用，`scope_ids` 填店铺 ID。
-- `category` 表示指定分类可用，`scope_ids` 填分类 ID。
-- `product` 表示指定商品可用，`scope_ids` 填商品 ID。
-- `sku` 表示指定 SKU 可用，`scope_ids` 填 SKU ID。
-- 平台运营可创建任意范围优惠券。
-- 商家运营只能创建 `scope_type=merchant` 且 `scope_ids` 只包含自己绑定店铺 ID 的优惠券。
-
-### POST `/promotions/coupons/{id}/claim`
-
-用户领取优惠券。后端会校验模板状态、有效期、库存和单用户领取上限。
-
-### PUT `/admin/promotions/coupons/{id}`
-
-编辑优惠券模板，字段与创建接口一致，均为可选字段，只更新传入内容。
-
-示例：
-
-```json
-{
-  "name": "满 100 减 15",
-  "discount_value": 1500,
-  "valid_to": "2026-12-31T23:59:59+08:00"
-}
-```
-
-权限规则：
-
-- 平台运营可编辑任意优惠券模板。
-- 商家运营只能编辑本店铺优惠券，且不能把适用范围改成平台券或其他店铺券。
-
-### POST `/admin/promotions/coupons/{id}/disable`
-
-停用优惠券模板。停用后用户不能继续领取，未使用用户券在结算时也会被判定不可用。
-
-### POST `/admin/promotions/coupons/{id}/batch-grant`
-
-按用户 ID 列表批量发券，当前仅平台运营可用。接口会去重用户 ID，只给存在且启用的用户发券，并遵守模板库存和单用户领取上限。
-
-请求：
-
-```json
-{
-  "user_ids": [1, 2, 3]
-}
-```
-
-响应：
-
-```json
-{
-  "granted_count": 2,
-  "skipped_user_ids": [3]
-}
-```
-
-### POST `/admin/promotions/coupons/expire`
-
-手动触发过期用户券作废，当前仅平台运营可用。Celery 任务入口为 `promotion.expire_user_coupons`，已在 `app/tasks/celery_app.py` 配置 beat 定时执行。
-
-相关配置：
-
-| 配置 | 默认值 | 说明 |
+| 字段 | 类型 | 说明 |
 |---|---|---|
-| `CELERY_EXPIRE_COUPON_INTERVAL_SECONDS` | 300 | Celery beat 扫描过期用户券的周期 |
+| name | string | 名称 |
+| scope_type | string | 适用范围 |
+| scope_ids | number[] | 范围 ID |
+| owner_merchant_id | number/null | 创建归属。平台创建为 null，商家创建为商家店铺 ID |
+| created_by_admin_id | number/null | 创建该模板的后台账号 ID |
+| discount_type | string | `amount` 固定金额；`percent` 折扣百分比 |
+| discount_value | number | 固定金额单位分；百分比时 80 表示 8 折 |
+| min_amount_cent | number | 使用门槛，按适用范围内商品金额计算 |
+| total_quantity | number | 总库存，0 表示不限 |
+| per_user_limit | number | 单用户限领 |
+| valid_from | string/null | 开始时间 |
+| valid_to | string/null | 结束时间 |
 
-响应：
+### `PUT /admin/promotions/coupons/{id}`
+
+编辑优惠券模板，字段同创建接口，均可选。
+
+商家调用时必须同时满足：
+
+- 当前账号是 `merchant_operator`。
+- 该模板 `owner_merchant_id` 等于当前账号绑定的 `merchant_id`。
+- 新旧 `scope_type/scope_ids` 都属于本店铺、本店商品或本店 SKU。
+
+否则返回 `40003`。
+
+### `POST /admin/promotions/coupons/{id}/disable`
+
+停用优惠券模板。停用后用户不能继续领取，未使用用户券在结算时也不可用。
+
+商家只能停用自己创建的模板；平台创建的模板只能由平台运营停用。
+
+### `POST /admin/promotions/coupons/{id}/batch-grant`
+
+平台按用户 ID 批量发券，商家不可用。
 
 ```json
-{
-  "expired_count": 3
-}
+{ "user_ids": [1, 2, 3] }
 ```
 
-### GET `/promotions/my-coupons`
+### `POST /admin/promotions/coupons/expire`
 
-查询当前用户优惠券。
+平台手动触发过期用户券作废。Celery 任务入口为 `promotion.expire_user_coupons`。
+
+## 满减
+
+### `GET /promotions/full-discounts/active`
+
+获取当前可用满减活动。
 
 查询参数：
 
-| 参数 | 类型 | 说明 |
-|---|---|---|
-| status | string | 可选，unused/used/expired/void |
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| merchant_id | number | 否 | 店铺页使用；只返回平台通用和该店铺相关活动 |
 
-用户券响应中的 `template` 字段包含优惠券模板信息。
+### `POST /admin/promotions/full-discounts`
 
-### 结算使用优惠券
-
-`POST /cart/checkout` 和 `POST /orders` 均支持传入 `coupon_id`。此处的 `coupon_id` 是用户券 ID，不是优惠券模板 ID。
+创建满减活动。
 
 ```json
 {
-  "coupon_id": 1
+  "name": "每满 100 减 10",
+  "scope_type": "merchant",
+  "scope_ids": [1],
+  "min_amount_cent": 10000,
+  "discount_amount_cent": 1000,
+  "valid_from": null,
+  "valid_to": null
 }
 ```
 
-下单成功后，用户券状态会从 `unused` 变为 `used`。
+响应中同样包含 `owner_merchant_id` 和 `created_by_admin_id`，含义与优惠券一致。
 
-结算规则：
+规则：
 
-- 优惠券门槛 `min_amount_cent` 按适用范围内商品金额计算，不按整单金额计算。
-- `amount` 固定金额券最多抵扣适用范围内商品金额。
-- `percent` 折扣券仅按适用范围内商品金额计算折扣。
-- 多店铺订单使用店铺券时，优惠只分摊到适用店铺订单，不会减到其他店铺订单。
+- 满减是“每满多减”，例如适用金额 260 元、门槛 100 元、减 10 元，则减 20 元。
+- 抵扣金额不会超过适用范围内商品金额。
+- 一个订单最终只能选择一种满减。
+- 若前端不传 `full_discount_id`，后端为了兼容旧调用会自动选择本单可用的最优满减；正式前端应展示可选项，让用户显式选择。
 
-### 用户券状态
+### `PUT /admin/promotions/full-discounts/{id}`
 
-| 状态 | 说明 |
+编辑满减活动，字段同创建接口，均可选。
+
+商家调用时必须同时满足：
+
+- 当前账号是 `merchant_operator`。
+- 该活动 `owner_merchant_id` 等于当前账号绑定的 `merchant_id`。
+- 新旧 `scope_type/scope_ids` 都属于本店铺、本店商品或本店 SKU。
+
+否则返回 `40003`。
+
+### `POST /admin/promotions/full-discounts/{id}/disable`
+
+停用满减活动。
+
+商家只能停用自己创建的满减活动；平台创建的活动只能由平台运营停用。
+
+## 结算选择
+
+`POST /cart/checkout` 支持：
+
+```json
+{
+  "full_discount_id": 1,
+  "coupon_id": 10,
+  "points_used": 100
+}
+```
+
+响应会返回：
+
+| 字段 | 说明 |
 |---|---|
-| unused | 未使用 |
-| used | 已使用 |
-| expired | 已过期 |
-| void | 已作废 |
+| available_full_discounts | 当前购物车可展示的满减选项，含可用状态和不可用原因 |
+| available_coupons | 当前用户券选项，含可用状态和不可用原因 |
+| selected_full_discount_id | 本次实际选中的满减 |
+| selected_coupon_id | 本次实际选中的用户券 |
+| full_discount_amount_cent | 满减抵扣 |
+| coupon_discount_amount_cent | 优惠券抵扣 |
+| points_discount_amount_cent | 积分抵扣 |
+| pay_amount_cent | 支付宝应付金额 |
 
-## 满减（待实现）
-
-- `GET /promotions/full-discounts/active` 当前活动
-
-## 限时特价（待实现）
-
-- `GET /promotions/flash` 列表
-- `GET /promotions/flash/{id}` 详情
-
-## 拼团（待实现）
-
-- `POST /promotions/group-buy/{activity_id}/start` 发起拼团
-- `POST /promotions/group-buy/{group_order_id}/join` 参团
-
-## 价格计算顺序
-
-限时特价/拼团价 -> 满减满折 -> 优惠券 -> 积分抵扣
-
-当前只接入优惠券。后续接入满减、限时价、拼团、积分抵扣时，需要同步补充价格计算顺序、前端配置页和结算展示。
+优惠券门槛按“满减后的适用范围金额”校验。跨店订单选择平台券或平台满减时，后端按适用商品金额分摊到各店铺订单；选择店铺/商品/SKU 范围时，只分摊到适用店铺或商品。
 
 ## 错误码
 
 | code | 场景 |
 |---|---|
 | 40004 | 活动或优惠券不存在 |
+| 40003 | 商家越权管理非自建促销或非本店范围促销 |
 | 40005 | 不满足领取或使用条件 |
 | 40008 | 活动未开始、已结束或状态不可用 |

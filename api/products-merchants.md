@@ -2,9 +2,9 @@
 
 ## 当前实现范围
 
-- 用户端已实现商品列表、商品详情、分类列表、店铺详情、店铺商品列表。
-- 管理端已实现分类创建、商家创建商品、商品列表、商品详情、编辑商品、编辑 SKU、上架、下架。
-- 店铺必须通过商家入驻审核创建，平台不能手动创建店铺；商品由审核通过的商家账号创建，平台负责分类维护和商品监管。
+- 用户端已实现商品列表、商品详情、分类列表、店铺详情、店铺商品列表；商品详情基础版采用正文描述 + 多图画廊展示。
+- 管理端已实现分类创建、商家创建商品、商品列表、商品详情、编辑商品、编辑 SKU、上架、下架，以及商家维护本店名称、Logo 和公告。
+- 店铺必须通过商家入驻审核创建，平台不能手动创建店铺；审核通过时店铺名称和 Logo 来自入驻申请，店铺公告默认为空，由商家后续自行维护；商品由审核通过的商家账号创建，平台负责分类维护和商品监管。
 - 当前规则明确只有商家入驻需要事前审核；商品创建后默认 `on_sale`。平台保留上架/下架等管理权限。
 - 为兼容旧联调脚本，仍保留 `submit-audit` 和 `audit` 接口，但它们不再是必经流程。
 - 商家管理员 `merchant_operator` 已按 `merchant_id` 做权限边界，只能查看和操作本店商品。
@@ -16,12 +16,16 @@
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | keyword | string | 否 | 商品名模糊搜索 |
-| category_id | number | 否 | 分类 ID |
+| category_id | number | 否 | 分类 ID；传父级分类时会同时返回其所有子孙分类下的商品 |
 | merchant_id | number | 否 | 店铺 ID |
+| min_price_cent | number | 否 | 最低价，单位分；按商品 SKU 价格过滤 |
+| max_price_cent | number | 否 | 最高价，单位分；按商品 SKU 价格过滤 |
+| sort_by | string | 否 | 排序字段：`newest`/`created_at`/`price`/`sales` |
+| sort_order | string | 否 | 排序方向：`asc`/`desc`，默认 `desc` |
 | page | number | 否 | 页码，默认 1 |
 | page_size | number | 否 | 每页数量，默认 20 |
 
-说明：用户端只返回 `on_sale` 商品。
+说明：用户端只返回 `on_sale` 商品。`category_id` 必须是存在且启用的分类，否则返回 `40004`。价格筛选会匹配商品任一 SKU；价格排序按商品最低 SKU 价排序。
 
 响应：
 
@@ -62,11 +66,11 @@
 | name | string | 商品名 |
 | description | string | 图文详情 |
 | cover_url | string/null | 封面图 |
-| images | string[] | 商品图片 |
+| images | string[] | 商品图片，按上传顺序返回，可用于详情页图文展示 |
 | status | string | 商品状态 |
 | skus | array | SKU 列表 |
 | merchant | object | 店铺摘要 |
-| review_summary | object | 评价摘要 |
+| review_summary | object | 评价摘要，包含 `count` 与 `average_score` |
 
 SKU 字段：
 
@@ -81,15 +85,168 @@ SKU 字段：
 
 ## 商品评价 `GET /products/{id}/reviews`
 
-分页返回通过审核的评价列表。
+分页返回公开评价列表。当前评价发布后默认为 `published`，管理端可隐藏不合适评价。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| page | number | 否 | 页码，默认 1 |
+| page_size | number | 否 | 每页数量，默认 20 |
+| score | number | 否 | 按评分筛选，1-5 |
+| has_image | boolean | 否 | `true` 时只返回有图评价 |
+
+响应列表项：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | number | 评价 ID |
+| user_id | number | 评价用户 ID |
+| user_nickname | string/null | 评价用户昵称 |
+| user_avatar_url | string/null | 评价用户头像 |
+| order_id | number | 来源订单 ID |
+| product_id | number | 商品 ID |
+| score | number | 评分，1-5 |
+| content | string | 评价内容 |
+| image_urls | string[] | 评价图片 |
+| status | string | 当前只公开返回 `published` |
+
+前端约定：商品详情页应展示 `review_summary` 和评价列表；评分用星级展示，支持按评分筛选和只看有图；评价图片用上传接口得到的 URL 数组保存并展示缩略图；用户信息优先展示 `user_nickname` 和 `user_avatar_url`，为空时再用用户 ID 兜底。
 
 ## 店铺主页 `GET /merchants/{id}`
 
-返回店铺信息、公告和在售商品入口。
+返回店铺基础信息。用户端店铺页应展示店铺 ID、店铺名、Logo、公告，并提供店铺商品列表入口。
+
+路径参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| id | number | 是 | 店铺 ID |
+
+响应 `data`：
+
+```json
+{
+  "id": 1,
+  "name": "测试店铺",
+  "logo_url": "/static/uploads/logo.jpg",
+  "announcement": "店铺公告"
+}
+```
+
+错误码：
+
+| code | HTTP | 说明 |
+|---|---|---|
+| 40004 | 404 | 店铺不存在 |
+
+## 店铺商品 `GET /merchants/{id}/products`
+
+返回指定店铺的在售商品列表，分页规则与 `GET /products` 一致。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| min_price_cent | number | 否 | 最低价格，单位分 |
+| max_price_cent | number | 否 | 最高价格，单位分 |
+| sort_by | string | 否 | `newest`、`price`、`sales` |
+| sort_order | string | 否 | `asc` 或 `desc`，默认按最新倒序 |
+| page | number | 否 | 页码，默认 1 |
+| page_size | number | 否 | 每页数量，默认 20 |
+
+响应 `data`：
+
+```json
+{
+  "list": [
+    {
+      "id": 1,
+      "name": "商品名称",
+      "cover_url": "/static/uploads/product.jpg",
+      "price_cent": 1299,
+      "market_price_cent": 1599,
+      "merchant_id": 1,
+      "merchant_name": "测试店铺",
+      "sales_count": 10,
+      "tags": []
+    }
+  ],
+  "page": 1,
+  "page_size": 20,
+  "total": 1
+}
+```
+
+前端约定：
+
+- 用户端商品卡片和商品详情中的店铺 ID/店铺名应能跳转到 `/merchants/{id}`。
+- 店铺页正常展示店铺关注状态、关注数、可用优惠券、商品列表、价格区间筛选和排序，不应要求用户通过接口返回区查店铺商品。
+- 用户中心或商城首页应通过 `/users/followed-merchants` 展示当前用户关注的店铺列表。
+- 店铺商品详情可复用普通商品详情与加入购物车能力。
+
+## 店铺关注 `GET /merchants/{id}/follow`
+
+返回店铺关注状态。未登录也可调用，此时 `followed=false`，仍返回关注数。
+
+响应：
+
+```json
+{
+  "merchant_id": 1,
+  "followed": false,
+  "follower_count": 10
+}
+```
+
+## 关注店铺 `POST /merchants/{id}/follow`
+
+权限：普通用户登录。重复关注不会重复增加关注数，接口保持幂等。
+
+响应同 `GET /merchants/{id}/follow`。
+
+## 取消关注店铺 `DELETE /merchants/{id}/follow`
+
+权限：普通用户登录。未关注时取消不会报错，接口保持幂等。
+
+响应同 `GET /merchants/{id}/follow`。
+
+## 商品收藏状态 `GET /products/{id}/favorite`
+
+返回商品收藏状态。未登录也可调用，此时 `favorited=false`，仍返回收藏数。
+
+响应：
+
+```json
+{
+  "product_id": 1,
+  "favorited": false,
+  "favorite_count": 12
+}
+```
+
+## 收藏商品 `POST /products/{id}/favorite`
+
+权限：普通用户登录。重复收藏不会重复增加收藏数，接口保持幂等。
+
+响应同 `GET /products/{id}/favorite`。
+
+## 取消收藏商品 `DELETE /products/{id}/favorite`
+
+权限：普通用户登录。未收藏时取消不会报错，接口保持幂等。
+
+响应同 `GET /products/{id}/favorite`。
 
 ## 分类 `GET /categories`
 
-返回扁平分类列表，字段包含 `id`、`name`、`parent_id`、`sort_order`。后续前端可按 `parent_id` 组装树。
+返回启用中的扁平分类列表，字段包含 `id`、`name`、`parent_id`、`sort_order`。后端按一级分类优先、父级、`sort_order`、`id` 排序；前端应按 `parent_id` 组装树形展示。
+
+分类规则：
+
+- 最多支持三级分类。
+- `parent_id = null` 表示一级分类。
+- `sort_order` 只表示同一父级下的展示顺序，数字越小越靠前。
+- 用户端和管理端商品列表按父级分类筛选时，会包含所有子孙分类下的商品。
 
 ## 管理端通用说明
 
@@ -112,6 +269,31 @@ SKU 字段：
 }
 ```
 
+## 商家端店铺资料 `GET /admin/merchant/profile`
+
+权限：仅 `merchant_operator`。返回当前商家账号绑定店铺的 `id`、`name`、`logo_url`、`announcement`。
+
+## 商家端店铺资料 `PUT /admin/merchant/profile`
+
+权限：仅 `merchant_operator`。商家编辑自己绑定店铺的名称、Logo 和用户端店铺公告。
+
+请求：
+
+```json
+{
+  "name": "新的店铺名称",
+  "logo_url": "/static/uploads/new-logo.jpg",
+  "announcement": "新的店铺公告"
+}
+```
+
+规则：
+
+- 店铺名称必须唯一，不能与其他店铺冲突。
+- `logo_url` 来自上传接口返回值。
+- `announcement` 展示在用户端店铺主页；入驻申请里的说明只供平台审核，不会自动成为店铺公告。
+- 平台运营不能通过该接口替商家编辑资料。
+
 ## 管理端分类 `POST /admin/categories`
 
 权限：仅 `platform_operator`。
@@ -126,6 +308,52 @@ SKU 字段：
 }
 ```
 
+字段说明：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| name | string | 是 | 分类名称，1-50 字 |
+| parent_id | number/null | 否 | 父级分类 ID；不传或传 null 表示一级分类 |
+| sort_order | number | 否 | 同一父级下排序，数字越小越靠前，默认 0 |
+
+错误码：
+
+| code | HTTP | 说明 |
+|---|---|---|
+| 40004 | 404 | 父级分类不存在或已停用 |
+| 40005 | 400 | 父级分类已是三级分类，不能继续添加子分类 |
+
+## 管理端分类 `PUT /admin/categories/{id}`
+
+权限：仅 `platform_operator`。
+
+请求字段均可选，只更新传入字段：
+
+```json
+{
+  "name": "休闲零食",
+  "parent_id": null,
+  "sort_order": 10
+}
+```
+
+规则：
+
+- 不能把分类移动到自己或自己的子孙分类下。
+- 移动后整棵分类子树仍不能超过三级。
+- 父级分类必须存在且启用。
+
+## 管理端分类 `DELETE /admin/categories/{id}`
+
+权限：仅 `platform_operator`。
+
+当前是软停用，不做物理删除。停用后分类不会出现在用户端/商家端分类列表，也不能继续用于新建或编辑商品。
+
+停用限制：
+
+- 分类下还有启用子分类时不能停用。
+- 分类下还有商品占用时不能停用，需要先迁移商品分类或处理商品。
+
 ## 管理端商品列表 `GET /admin/products`
 
 查询参数：
@@ -133,8 +361,12 @@ SKU 字段：
 | 参数 | 类型 | 必填 | 说明 |
 |---|---|---|---|
 | keyword | string | 否 | 商品名模糊搜索 |
-| category_id | number | 否 | 分类 ID |
+| category_id | number | 否 | 分类 ID；传父级分类时会同时返回其所有子孙分类下的商品 |
 | merchant_id | number | 否 | 店铺 ID，商家管理员只能传自己的店铺 ID |
+| min_price_cent | number | 否 | 最低价，单位分 |
+| max_price_cent | number | 否 | 最高价，单位分 |
+| sort_by | string | 否 | `newest`/`created_at`/`price`/`sales` |
+| sort_order | string | 否 | `asc`/`desc` |
 | page | number | 否 | 页码 |
 | page_size | number | 否 | 每页数量 |
 
@@ -170,9 +402,9 @@ SKU 字段：
   "merchant_id": 1,
   "category_id": 1,
   "name": "每日坚果",
-  "description": "商品详情",
+  "description": "商品详情正文，可包含换行文本。当前不引入富文本编辑器，详情页使用正文 + 多图画廊展示。",
   "cover_url": "/static/uploads/cover.jpg",
-  "image_urls": ["/static/uploads/cover.jpg"],
+  "image_urls": ["/static/uploads/cover.jpg", "/static/uploads/detail-1.jpg"],
   "skus": [
     {
       "name": "默认规格",
@@ -224,6 +456,24 @@ SKU 字段：
 说明：当前 SKU 库存变动统一通过库存服务写入流水，记录调整前库存、调整后库存、变动数量和操作来源。已覆盖管理端手动调整、下单扣减、取消/超时取消回补和符合规则的售后库存回补。后续扩展明细级退货数量时，需要同步调整库存回补规则、前端售后页面和测试。
 
 响应：更新后的 `ProductDetailResponse`。
+
+## 管理端新增 SKU `POST /admin/products/{product_id}/skus`
+
+权限：平台运营可给全平台商品新增 SKU，商家运营只能给本店商品新增 SKU。
+
+请求：
+
+```json
+{
+  "name": "1kg",
+  "price_cent": 18900,
+  "market_price_cent": 22900,
+  "stock": 50,
+  "spec_values": { "规格": "1kg" }
+}
+```
+
+响应：更新后的 `ProductDetailResponse`。新增 SKU 后，商家端应刷新商品详情和本店商品列表。
 
 ## 管理端 SKU 库存流水 `GET /admin/products/{product_id}/skus/{sku_id}/stock-logs`
 

@@ -8,6 +8,7 @@
   - `platform_operator`：平台运营，可查看全平台数据。
   - `merchant_operator`：商家运营，只能查看和操作自己绑定 `merchant_id` 的数据。
 - 普通用户账号和后台管理员账号分离，不能混用登录接口。
+- 管理端前端按 `platform` 和 `merchant` 两套 session 分别保存 token。普通管理接口返回 401 时，HTTP 拦截器会使用对应 session 的 refresh token 调用 `/admin/auth/refresh`；刷新成功后重放原请求，刷新失败只清理当前 session 的 token，不影响另一端同时登录状态。
 
 ## 通用分页
 
@@ -47,6 +48,8 @@
 | PUT | `/merchant/application/me` | 商家重新提交入驻资料 |
 | GET | `/merchant/applications` | 平台查看商家入驻申请 |
 | POST | `/merchant/applications/{id}/audit` | 平台审核商家入驻申请 |
+| GET | `/merchant/profile` | 商家查看自己的店铺资料 |
+| PUT | `/merchant/profile` | 商家编辑自己的店铺资料 |
 | GET | `/accounts` | 管理员账号列表，仅平台运营 |
 | PATCH | `/accounts/{id}/status` | 启用或禁用后台账号，仅平台运营 |
 | POST | `/accounts/{id}/reset-password` | 重置后台账号密码，仅平台运营 |
@@ -109,9 +112,11 @@
   "real_name": "商家负责人",
   "merchant_name": "测试店铺",
   "logo_url": "/static/uploads/logo.jpg",
-  "announcement": "店铺公告"
+  "announcement": "主营类目、经营范围和入驻理由"
 }
 ```
+
+说明：`announcement` 在入驻流程中表示“入驻申请说明”，供平台审核使用；审核通过创建店铺时不会自动作为用户端店铺公告。店铺公告由商家通过 `PUT /merchant/profile` 单独维护。
 
 响应：`MerchantApplicationResponse`，初始 `status=pending`。
 
@@ -136,7 +141,7 @@
 {
   "merchant_name": "新的店铺名称",
   "logo_url": "/static/uploads/new-logo.jpg",
-  "announcement": "新的店铺公告"
+  "announcement": "补充入驻申请说明"
 }
 ```
 
@@ -146,6 +151,42 @@
 - 重新提交后状态回到 `pending`，清空原拒绝原因。
 - 不限制重新提交次数，但店铺名称仍需保持唯一。
 - `approved` 状态不允许再修改入驻申请；后续如需改店铺资料，应走店铺资料编辑接口。
+
+### GET `/merchant/profile`
+
+权限：仅 `merchant_operator`。返回当前商家账号绑定店铺的资料。
+
+响应：
+
+```json
+{
+  "id": 1,
+  "name": "测试店铺",
+  "logo_url": "/static/uploads/logo.jpg",
+  "announcement": "用户端店铺公告"
+}
+```
+
+### PUT `/merchant/profile`
+
+权限：仅 `merchant_operator`。商家只能编辑自己绑定的店铺资料。
+
+请求字段均可选：
+
+```json
+{
+  "name": "新的店铺名称",
+  "logo_url": "/static/uploads/new-logo.jpg",
+  "announcement": "新的用户端店铺公告"
+}
+```
+
+规则：
+
+- 店铺名称必须唯一。
+- `logo_url` 通常来自上传接口返回路径。
+- `announcement` 是展示在用户端店铺页的店铺公告，不等同于入驻申请说明。
+- `merchant_pending` 未审核商家不能调用该接口。
 
 ### GET `/merchant/applications`
 
@@ -174,7 +215,7 @@
 
 审核通过：
 
-- 创建店铺 `merchant`。
+- 创建店铺 `merchant`，名称和 Logo 来自入驻申请，店铺公告默认为空，由商家后续维护。
 - 申请账号角色从 `merchant_pending` 变为 `merchant_operator`。
 - 申请账号绑定新创建的 `merchant_id`。
 - 入驻申请状态变为 `approved`。
@@ -478,6 +519,7 @@
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
+| id | number | 订单明细 ID |
 | product_id | number | 商品 ID |
 | sku_id | number | SKU ID |
 | product_name | string | 下单时商品名 |
@@ -485,6 +527,8 @@
 | unit_price_cent | number | 单价，单位分 |
 | quantity | number | 数量 |
 | total_amount_cent | number | 明细总价，单位分 |
+
+前端约定：平台端和商家端订单表都应提供“详情”入口，详情中直接展示收货地址、物流记录和商品明细，不应要求通过接口返回排查区查看。
 
 ### GET `/orders/export`
 
@@ -528,29 +572,48 @@
 
 ### GET `/refunds`
 
+平台账号返回全平台售后；商家账号只返回本店订单对应的售后，不能查看或处理其他店铺售后。
+
+查询参数：
+
+| 参数 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| status | string | 否 | 售后状态筛选 |
+| page | number | 否 | 页码 |
+| page_size | number | 否 | 每页数量 |
+
 售后列表项核心字段：
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | id | number | 售后单 ID |
 | order_id | number | 订单 ID |
+| order_item_id | number | 订单明细 ID |
+| product_id | number | 商品 ID |
+| sku_id | number | SKU ID |
 | user_id | number | 申请用户 ID |
+| quantity | number | 本次退款数量 |
 | refund_amount_cent | number | 退款金额，单位分 |
 | reason_type | string | 售后原因分类 |
 | reason | string | 售后原因说明 |
+| image_urls | string[] | 售后凭证图片 URL |
 | status | string | 售后状态 |
 | origin_order_status | string | 申请售后前的订单状态 |
+| logs | array | 售后处理记录，包含 action、message、operator_type、operator_id、created_at |
 
 ### POST `/refunds/{id}/refund`
 
 执行退款完成。仅 `approved` 或 `received` 状态可执行。
 
+权限：平台可处理全平台售后；商家只能处理本店订单对应售后。
+
 执行后：
 
 - 售后单状态变为 `refunded`。
-- 订单状态变为 `closed`。
-- 若退款金额等于支付单实付金额，支付单状态变为 `refunded`。
-- 若退款金额小于支付单实付金额，支付单状态变为 `partial_refunded`。
+- 若订单内全部明细数量都已退款，订单状态变为 `closed`；否则恢复到申请售后前状态。
+- 若支付单累计退款金额等于支付单实付金额，支付单状态变为 `refunded`。
+- 若支付单累计退款金额小于支付单实付金额，支付单状态变为 `partial_refunded`。
+- 若已确认收到退货，退款完成时只回补本售后单对应 SKU 的本次退款数量。
 
 ## 促销
 
@@ -563,7 +626,7 @@
 | POST | `/promotions/coupons/{id}/batch-grant` | 按用户 ID 批量发券 |
 | POST | `/promotions/coupons/expire` | 手动触发过期用户券作废 |
 
-当前促销已实现优惠券模板创建、编辑、停用、领取、范围校验、下单抵扣、按用户 ID 批量发券和手动过期作废；满减、限时价和拼团后续再补。
+当前促销已实现优惠券模板创建、编辑、停用、领取、范围校验、下单抵扣、按用户 ID 批量发券、手动过期作废、满减活动和拼团基础配置。限时价、营销标签、活动冲突规则、拼团过期失败处理和更完整的跨店金额边界测试属于移交后继续完善内容。
 
 ## 社区内容管理
 
