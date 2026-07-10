@@ -366,6 +366,78 @@ async def test_batch_publish_and_merchant_scope() -> None:
 
 
 @pytest.mark.asyncio
+async def test_home_banner_admin_crud_and_public_list() -> None:
+    await init_db()
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        platform_token = await create_admin_token(client)
+        platform_headers = {"Authorization": f"Bearer {platform_token}"}
+        merchant_id = await create_test_merchant("Home Banner Merchant")
+        merchant_token = await create_merchant_admin_token(client, merchant_id)
+        merchant_headers = {"Authorization": f"Bearer {merchant_token}"}
+
+        product_response = await client.post(
+            "/api/v1/admin/products",
+            json={
+                "merchant_id": merchant_id,
+                "name": f"Home Banner Product {uuid4().hex[:8]}",
+                "description": "",
+                "image_urls": ["/static/uploads/home-banner-product.jpg"],
+                "skus": [{"name": "Default", "price_cent": 1200, "stock": 8}],
+            },
+            headers=merchant_headers,
+        )
+        assert product_response.status_code == 200
+        product_id = product_response.json()["data"]["id"]
+
+        create_response = await client.post(
+            "/api/v1/admin/home-banners",
+            json={
+                "title": "首页轮播测试",
+                "subtitle": "用于验证首页轮播配置",
+                "image_url": "/static/uploads/home-banner.jpg",
+                "target_type": "product",
+                "target_id": product_id,
+                "sort_order": 1,
+                "is_active": True,
+            },
+            headers=platform_headers,
+        )
+        assert create_response.status_code == 200
+        banner = create_response.json()["data"]
+        assert banner["target_type"] == "product"
+        assert banner["target_id"] == product_id
+        assert banner["target_url"] is None
+
+        public_response = await client.get("/api/v1/home/banners")
+        assert public_response.status_code == 200
+        assert any(item["id"] == banner["id"] for item in public_response.json()["data"])
+
+        update_response = await client.put(
+            f"/api/v1/admin/home-banners/{banner['id']}",
+            json={
+                "target_type": "none",
+                "target_id": product_id,
+                "target_url": "https://example.com/unused",
+                "is_active": False,
+            },
+            headers=platform_headers,
+        )
+        assert update_response.status_code == 200
+        updated_banner = update_response.json()["data"]
+        assert updated_banner["target_type"] == "none"
+        assert updated_banner["target_id"] is None
+        assert updated_banner["target_url"] is None
+
+        public_after_disable = await client.get("/api/v1/home/banners")
+        assert public_after_disable.status_code == 200
+        assert all(item["id"] != banner["id"] for item in public_after_disable.json()["data"])
+
+        delete_response = await client.delete(f"/api/v1/admin/home-banners/{banner['id']}", headers=platform_headers)
+        assert delete_response.status_code == 200
+
+
+@pytest.mark.asyncio
 async def test_category_parent_filter_includes_descendant_products() -> None:
     await init_db()
     transport = ASGITransport(app=app)

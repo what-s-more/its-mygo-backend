@@ -85,6 +85,28 @@ async def test_community_post_audit_like_and_comment_flow() -> None:
         assert like_response.json()["data"]["liked"] is True
         assert like_response.json()["data"]["like_count"] == 1
 
+        favorite_response = await client.post(f"/api/v1/community/posts/{post_id}/favorite", headers=user_headers)
+        assert favorite_response.status_code == 200
+        assert favorite_response.json()["data"]["favorited"] is True
+        assert favorite_response.json()["data"]["favorite_count"] == 1
+
+        favorite_posts_response = await client.get("/api/v1/community/favorite-posts", headers=user_headers)
+        assert favorite_posts_response.status_code == 200
+        favorite_posts = favorite_posts_response.json()["data"]["list"]
+        assert favorite_posts[0]["post"]["id"] == post_id
+        assert favorite_posts[0]["post"]["favorited"] is True
+        assert favorite_posts[0]["post"]["favorite_count"] == 1
+
+        favorite_list_response = await client.get("/api/v1/community/posts", headers=user_headers)
+        favorite_list_post = next(post for post in favorite_list_response.json()["data"]["list"] if post["id"] == post_id)
+        assert favorite_list_post["favorited"] is True
+        assert favorite_list_post["favorite_count"] == 1
+
+        unfavorite_response = await client.post(f"/api/v1/community/posts/{post_id}/favorite", headers=user_headers)
+        assert unfavorite_response.status_code == 200
+        assert unfavorite_response.json()["data"]["favorited"] is False
+        assert unfavorite_response.json()["data"]["favorite_count"] == 0
+
         comment_response = await client.post(
             f"/api/v1/community/posts/{post_id}/comments",
             json={"content": "评论也需要审核"},
@@ -237,6 +259,7 @@ async def test_admin_merchant_post_and_square_section_lists_all_posts() -> None:
         merchant_post = merchant_post_response.json()["data"]
         assert merchant_post["type"] == "merchant_ad"
         assert merchant_post["section"] == "merchant"
+        assert merchant_post["merchant_id"] == merchant_id
         assert merchant_post["product_ids"] == [product_id]
 
         help_post_response = await client.post(

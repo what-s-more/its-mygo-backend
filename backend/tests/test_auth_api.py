@@ -2,8 +2,6 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 from uuid import uuid4
 
-pytest.importorskip("aiosqlite")
-
 from app.core.security import hash_password
 from app.db.session import init_db
 from app.main import app

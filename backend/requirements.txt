@@ -2,7 +2,6 @@ fastapi
 uvicorn[standard]
 sqlalchemy
 asyncmy
-aiosqlite
 alembic
 redis
 celery
