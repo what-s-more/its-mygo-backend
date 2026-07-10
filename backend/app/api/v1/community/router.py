@@ -1,11 +1,15 @@
 from fastapi import APIRouter, Depends
+from fastapi.security import HTTPAuthorizationCredentials
 
-from app.core.dependencies import DbSession, get_current_user
+from app.api.v1.merchants.router import optional_consumer_user_id
+from app.core.dependencies import DbSession, bearer_scheme, get_current_user
 from app.models.user import User
 from app.schemas.community import (
     CommentCreateRequest,
     CommentResponse,
     CommunityUserProfileResponse,
+    FavoritePostItem,
+    FavoriteToggleResponse,
     LikeToggleResponse,
     PostCreateRequest,
     PostResponse,
@@ -25,12 +29,15 @@ async def list_posts(
     topic: str | None = None,
     page: int = 1,
     page_size: int = 20,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> ApiResponse[dict]:
+    current_user_id = optional_consumer_user_id(credentials)
     posts, total = await community_service.list_posts(
         db,
         section=section,
         author_id=author_id,
         topic=topic,
+        current_user_id=current_user_id,
         page=page,
         page_size=page_size,
     )
@@ -55,12 +62,15 @@ async def list_community_user_posts(
     topic: str | None = None,
     page: int = 1,
     page_size: int = 20,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
 ) -> ApiResponse[dict]:
+    current_user_id = optional_consumer_user_id(credentials)
     posts, total = await community_service.list_posts(
         db,
         section=section,
         author_id=user_id,
         topic=topic,
+        current_user_id=current_user_id,
         page=page,
         page_size=page_size,
     )
@@ -68,8 +78,13 @@ async def list_community_user_posts(
 
 
 @router.get("/posts/{post_id}", response_model=ApiResponse[PostResponse])
-async def get_post(post_id: int, db: DbSession) -> ApiResponse[PostResponse]:
-    return success(await community_service.get_post(db, post_id))
+async def get_post(
+    post_id: int,
+    db: DbSession,
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> ApiResponse[PostResponse]:
+    current_user_id = optional_consumer_user_id(credentials)
+    return success(await community_service.get_post(db, post_id, current_user_id=current_user_id))
 
 
 @router.post("/posts", response_model=ApiResponse[PostResponse])
@@ -99,6 +114,34 @@ async def toggle_like(
 ) -> ApiResponse[LikeToggleResponse]:
     result = await community_service.toggle_like(db, current_user, post_id)
     return success(LikeToggleResponse(**result))
+
+
+@router.post("/posts/{post_id}/favorite", response_model=ApiResponse[FavoriteToggleResponse])
+async def toggle_favorite(
+    post_id: int,
+    db: DbSession,
+    current_user: User = Depends(get_current_user),
+) -> ApiResponse[FavoriteToggleResponse]:
+    result = await community_service.toggle_favorite(db, current_user, post_id)
+    return success(FavoriteToggleResponse(**result))
+
+
+@router.get("/favorite-posts", response_model=ApiResponse[dict])
+async def list_favorite_posts(
+    db: DbSession,
+    current_user: User = Depends(get_current_user),
+    page: int = 1,
+    page_size: int = 20,
+) -> ApiResponse[dict]:
+    items, total = await community_service.list_favorite_posts(db, current_user, page=page, page_size=page_size)
+    return success(
+        {
+            "list": [item.model_dump() for item in items],
+            "page": page,
+            "page_size": page_size,
+            "total": total,
+        }
+    )
 
 
 @router.get("/posts/{post_id}/comments", response_model=ApiResponse[dict])

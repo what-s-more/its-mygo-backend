@@ -42,6 +42,9 @@ from app.schemas.product import (
     CategoryCreateRequest,
     CategoryResponse,
     CategoryUpdateRequest,
+    HomeBannerCreateRequest,
+    HomeBannerResponse,
+    HomeBannerUpdateRequest,
     MerchantCreateRequest,
     MerchantResponse,
     MerchantUpdateRequest,
@@ -65,6 +68,7 @@ from app.schemas.promotion import (
     FullDiscountResponse,
     FullDiscountUpdateRequest,
 )
+from app.schemas.report import ReportOverviewResponse
 from app.services.admin_service import admin_service
 from app.services.admin_log_service import admin_log_service
 from app.services.auth_service import auth_service
@@ -74,6 +78,7 @@ from app.services.order_service import order_service
 from app.services.platform_setting_service import platform_setting_service
 from app.services.product_service import product_service
 from app.services.promotion_service import promotion_service
+from app.services.report_service import report_service
 from app.utils.response import ApiResponse, success
 
 router = APIRouter()
@@ -206,6 +211,22 @@ async def admin_dashboard_summary(
     current_admin: AdminUser = Depends(get_current_admin),
 ) -> ApiResponse[DashboardSummaryResponse]:
     return success(await admin_service.get_dashboard_summary(db, current_admin))
+
+
+@router.get("/reports/platform/overview", response_model=ApiResponse[ReportOverviewResponse])
+async def admin_platform_report_overview(
+    db: DbSession,
+    current_admin: AdminUser = Depends(get_current_admin),
+) -> ApiResponse[ReportOverviewResponse]:
+    return success(await report_service.get_overview(db, current_admin, "platform"))
+
+
+@router.get("/reports/merchant/overview", response_model=ApiResponse[ReportOverviewResponse])
+async def admin_merchant_report_overview(
+    db: DbSession,
+    current_admin: AdminUser = Depends(get_current_admin),
+) -> ApiResponse[ReportOverviewResponse]:
+    return success(await report_service.get_overview(db, current_admin, "merchant"))
 
 
 @router.get("/users", response_model=ApiResponse[dict])
@@ -494,6 +515,74 @@ async def disable_category(
     return success(CategoryResponse.model_validate(category))
 
 
+@router.get("/home-banners", response_model=ApiResponse[list[HomeBannerResponse]])
+async def admin_list_home_banners(
+    db: DbSession,
+    current_admin: AdminUser = Depends(get_current_admin),
+) -> ApiResponse[list[HomeBannerResponse]]:
+    ensure_platform_operator(current_admin)
+    banners = await product_service.list_home_banners(db, include_inactive=True)
+    return success([HomeBannerResponse.model_validate(banner) for banner in banners])
+
+
+@router.post("/home-banners", response_model=ApiResponse[HomeBannerResponse])
+async def admin_create_home_banner(
+    payload: HomeBannerCreateRequest,
+    db: DbSession,
+    current_admin: AdminUser = Depends(get_current_admin),
+) -> ApiResponse[HomeBannerResponse]:
+    ensure_platform_operator(current_admin)
+    banner = await product_service.create_home_banner(db, payload)
+    await admin_log_service.record(
+        db,
+        admin=current_admin,
+        action="home_banner.create",
+        resource_type="home_banner",
+        resource_id=banner.id,
+        description=f"创建首页轮播图 {banner.title}",
+    )
+    return success(HomeBannerResponse.model_validate(banner))
+
+
+@router.put("/home-banners/{banner_id}", response_model=ApiResponse[HomeBannerResponse])
+async def admin_update_home_banner(
+    banner_id: int,
+    payload: HomeBannerUpdateRequest,
+    db: DbSession,
+    current_admin: AdminUser = Depends(get_current_admin),
+) -> ApiResponse[HomeBannerResponse]:
+    ensure_platform_operator(current_admin)
+    banner = await product_service.update_home_banner(db, banner_id, payload)
+    await admin_log_service.record(
+        db,
+        admin=current_admin,
+        action="home_banner.update",
+        resource_type="home_banner",
+        resource_id=banner.id,
+        description=f"更新首页轮播图 {banner.title}",
+    )
+    return success(HomeBannerResponse.model_validate(banner))
+
+
+@router.delete("/home-banners/{banner_id}", response_model=ApiResponse[HomeBannerResponse])
+async def admin_delete_home_banner(
+    banner_id: int,
+    db: DbSession,
+    current_admin: AdminUser = Depends(get_current_admin),
+) -> ApiResponse[HomeBannerResponse]:
+    ensure_platform_operator(current_admin)
+    banner = await product_service.delete_home_banner(db, banner_id)
+    await admin_log_service.record(
+        db,
+        admin=current_admin,
+        action="home_banner.delete",
+        resource_type="home_banner",
+        resource_id=banner.id,
+        description=f"删除首页轮播图 {banner.title}",
+    )
+    return success(HomeBannerResponse.model_validate(banner))
+
+
 @router.post("/products", response_model=ApiResponse[ProductDetailResponse])
 async def create_product(
     payload: ProductCreateRequest,
@@ -663,6 +752,25 @@ async def unpublish_product(
     current_admin: AdminUser = Depends(get_current_admin),
 ) -> ApiResponse[ProductDetailResponse]:
     product = await product_service.unpublish_product_for_admin(db, current_admin, product_id)
+    return success(await product_service.to_detail_response(db, product))
+
+
+@router.delete("/products/{product_id}", response_model=ApiResponse[ProductDetailResponse])
+async def delete_product(
+    product_id: int,
+    db: DbSession,
+    current_admin: AdminUser = Depends(get_current_admin),
+) -> ApiResponse[ProductDetailResponse]:
+    product = await product_service.delete_product_for_admin(db, current_admin, product_id)
+    await admin_log_service.record(
+        db,
+        current_admin,
+        action="product.delete",
+        resource_type="product",
+        resource_id=product_id,
+        description=f"删除商品：{product.name}",
+    )
+    await db.commit()
     return success(await product_service.to_detail_response(db, product))
 
 

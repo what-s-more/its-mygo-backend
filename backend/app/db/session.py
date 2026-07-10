@@ -5,7 +5,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from app.core.config import settings
 
-engine = create_async_engine(settings.database_url, echo=settings.app_env == "development")
+engine = create_async_engine(
+    settings.database_url,
+    echo=settings.app_env == "development",
+    pool_pre_ping=settings.database_url.startswith("mysql"),
+    pool_recycle=1800 if settings.database_url.startswith("mysql") else -1,
+)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 
@@ -21,10 +26,13 @@ async def init_db() -> None:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         if settings.database_url.startswith("sqlite"):
+            await _patch_sqlite_product_columns(conn)
             await _patch_sqlite_order_columns(conn)
             await _patch_sqlite_cart_item_columns(conn)
             await _patch_sqlite_payment_columns(conn)
             await _patch_sqlite_community_post_columns(conn)
+            await _patch_sqlite_community_post_favorite_table(conn)
+            await _patch_sqlite_customer_service_tables(conn)
             await _patch_sqlite_refund_columns(conn)
             await _patch_sqlite_coupon_template_columns(conn)
             await _patch_sqlite_full_discount_columns(conn)
@@ -33,7 +41,42 @@ async def init_db() -> None:
             await _patch_sqlite_merchant_application_columns(conn)
             await _patch_sqlite_user_columns(conn)
             await _patch_sqlite_user_address_columns(conn)
-            await _seed_default_categories(conn)
+            await _patch_sqlite_home_banner_table(conn)
+
+
+async def _patch_sqlite_product_columns(conn) -> None:
+    result = await conn.execute(text("PRAGMA table_info(product)"))
+    existing_columns = {row[1] for row in result.fetchall()}
+    columns = {
+        "detail_image_urls": "TEXT DEFAULT '[]'",
+    }
+    for column_name, column_type in columns.items():
+        if column_name not in existing_columns:
+            await conn.execute(text(f"ALTER TABLE product ADD COLUMN {column_name} {column_type}"))
+
+
+async def _patch_sqlite_home_banner_table(conn) -> None:
+    await conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS home_banner (
+                id INTEGER NOT NULL PRIMARY KEY,
+                title VARCHAR(80) NOT NULL,
+                subtitle VARCHAR(160),
+                image_url VARCHAR(255) NOT NULL,
+                target_type VARCHAR(30) DEFAULT 'none' NOT NULL,
+                target_id INTEGER,
+                target_url VARCHAR(255),
+                sort_order INTEGER DEFAULT 0 NOT NULL,
+                is_active BOOLEAN DEFAULT 1 NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+    )
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_home_banner_id ON home_banner (id)"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_home_banner_is_active ON home_banner (is_active)"))
 
 
 async def _patch_sqlite_order_columns(conn) -> None:
@@ -77,10 +120,81 @@ async def _patch_sqlite_community_post_columns(conn) -> None:
     existing_columns = {row[1] for row in result.fetchall()}
     columns = {
         "section": "VARCHAR(30) DEFAULT 'square'",
+        "merchant_id": "INTEGER",
     }
     for column_name, column_type in columns.items():
         if column_name not in existing_columns:
             await conn.execute(text(f"ALTER TABLE community_post ADD COLUMN {column_name} {column_type}"))
+
+
+async def _patch_sqlite_community_post_favorite_table(conn) -> None:
+    await conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS community_post_favorite (
+                id INTEGER NOT NULL PRIMARY KEY,
+                post_id INTEGER NOT NULL,
+                user_id INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                CONSTRAINT uq_community_post_favorite_post_user UNIQUE (post_id, user_id),
+                FOREIGN KEY(post_id) REFERENCES community_post (id),
+                FOREIGN KEY(user_id) REFERENCES user (id)
+            )
+            """
+        )
+    )
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_community_post_favorite_id ON community_post_favorite (id)"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_community_post_favorite_post_id ON community_post_favorite (post_id)"))
+    await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_community_post_favorite_user_id ON community_post_favorite (user_id)"))
+
+
+async def _patch_sqlite_customer_service_tables(conn) -> None:
+    await conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS customer_service_conversation (
+                id INTEGER NOT NULL PRIMARY KEY,
+                user_id INTEGER NOT NULL,
+                target_type VARCHAR(20) DEFAULT 'merchant',
+                merchant_id INTEGER,
+                product_id INTEGER,
+                order_id INTEGER,
+                status VARCHAR(30) DEFAULT 'open',
+                last_message_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(user_id) REFERENCES user (id),
+                FOREIGN KEY(merchant_id) REFERENCES merchant (id),
+                FOREIGN KEY(product_id) REFERENCES product (id),
+                FOREIGN KEY(order_id) REFERENCES orders (id)
+            )
+            """
+        )
+    )
+    await conn.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS customer_service_message (
+                id INTEGER NOT NULL PRIMARY KEY,
+                conversation_id INTEGER NOT NULL,
+                sender_type VARCHAR(20) NOT NULL,
+                sender_id INTEGER NOT NULL,
+                content_type VARCHAR(20) DEFAULT 'text',
+                content TEXT DEFAULT '',
+                image_urls TEXT DEFAULT '[]',
+                is_read BOOLEAN DEFAULT 0,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY(conversation_id) REFERENCES customer_service_conversation (id)
+            )
+            """
+        )
+    )
+    for table, columns in {
+        "customer_service_conversation": ["id", "user_id", "target_type", "merchant_id", "status"],
+        "customer_service_message": ["id", "conversation_id", "sender_type", "sender_id"],
+    }.items():
+        for column in columns:
+            await conn.execute(text(f"CREATE INDEX IF NOT EXISTS ix_{table}_{column} ON {table} ({column})"))
 
 
 async def _patch_sqlite_payment_columns(conn) -> None:
@@ -224,25 +338,3 @@ async def _patch_sqlite_user_address_columns(conn) -> None:
     for column_name, column_type in columns.items():
         if column_name not in existing_columns:
             await conn.execute(text(f"ALTER TABLE user_address ADD COLUMN {column_name} {column_type}"))
-
-
-async def _seed_default_categories(conn) -> None:
-    default_categories = [
-        "食品生鲜",
-        "美妆个护",
-        "家居日用",
-        "数码家电",
-        "服饰鞋包",
-        "母婴用品",
-        "运动户外",
-        "图书文创",
-        "宠物生活",
-        "本地服务",
-    ]
-    for index, name in enumerate(default_categories, start=1):
-        result = await conn.execute(text("SELECT id FROM category WHERE name = :name LIMIT 1"), {"name": name})
-        if result.fetchone() is None:
-            await conn.execute(
-                text("INSERT INTO category (name, parent_id, sort_order, is_active) VALUES (:name, NULL, :sort_order, 1)"),
-                {"name": name, "sort_order": index * 10},
-            )

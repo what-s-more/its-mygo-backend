@@ -45,3 +45,23 @@ async def get_current_admin(payload: Annotated[dict, Depends(get_token_payload)]
     if admin is None or not admin.is_active:
         raise UnauthorizedException("管理员不存在或已禁用")
     return admin
+
+
+async def get_optional_current_user(
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer_scheme)],
+    db: DbSession,
+) -> User | None:
+    if credentials is None:
+        return None
+    try:
+        payload = decode_token(credentials.credentials)
+    except ValueError:
+        return None
+    if is_token_blacklisted(payload.get("jti")):
+        return None
+    if payload.get("token_type") != "access" or payload.get("account_type") != "consumer":
+        return None
+    user = await auth_service.get_user_by_id(db, int(payload["sub"]))
+    if user is None or not user.is_active:
+        return None
+    return user

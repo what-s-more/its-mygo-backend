@@ -23,9 +23,9 @@ async def upload_image(file: UploadFile = File(...)) -> ApiResponse[dict]:
         raise AppException(40009, "文件类型不合法")
 
     content = await file.read()
-    max_size = settings.upload_max_size_mb * 1024 * 1024
-    if len(content) > max_size:
-        raise AppException(40009, "文件大小超出限制")
+    # max_size = settings.upload_max_size_mb * 1024 * 1024
+    # if len(content) > max_size:
+    #     raise AppException(40009, "文件大小超出限制")
 
     upload_dir = Path(settings.upload_dir)
     if not upload_dir.is_absolute():

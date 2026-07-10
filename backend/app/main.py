@@ -19,7 +19,7 @@ from app.db.session import init_db
 def create_app() -> FastAPI:
     app = FastAPI(title=settings.app_name, version="0.1.0")
     upload_dir = Path(settings.upload_dir)
-    if not upload_dir.is_absolute() and not upload_dir.exists():
+    if not upload_dir.is_absolute():
         upload_dir = Path(__file__).resolve().parents[1] / settings.upload_dir
     upload_dir.mkdir(parents=True, exist_ok=True)
     app.add_middleware(

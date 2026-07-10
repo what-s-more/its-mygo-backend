@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends
 
-from app.core.dependencies import DbSession, get_current_user
+from app.core.dependencies import DbSession, get_current_user, get_optional_current_user
 from app.models.user import User
 from app.schemas.promotion import CouponTemplateResponse, FullDiscountResponse, UserCouponResponse
 from app.services.promotion_service import promotion_service
@@ -13,8 +13,16 @@ router = APIRouter()
 async def list_available_coupons(
     db: DbSession,
     merchant_id: int | None = None,
+    current_user: User | None = Depends(get_optional_current_user),
 ) -> ApiResponse[list[CouponTemplateResponse]]:
-    return success(await promotion_service.list_coupon_templates(db, only_available=True, merchant_id=merchant_id))
+    return success(
+        await promotion_service.list_coupon_templates(
+            db,
+            only_available=True,
+            merchant_id=merchant_id,
+            user_id=current_user.id if current_user else None,
+        )
+    )
 
 
 @router.post("/coupons/{coupon_template_id}/claim", response_model=ApiResponse[UserCouponResponse])
