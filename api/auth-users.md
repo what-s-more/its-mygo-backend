@@ -386,8 +386,26 @@
 ```json
 {
   "level_rules": [
-    { "level": "normal", "name": "普通会员", "threshold_cent": 0, "benefits": ["基础积分"] },
-    { "level": "silver", "name": "银卡会员", "threshold_cent": 50000, "benefits": ["积分加速"] }
+    {
+      "level": "normal",
+      "name": "普通会员",
+      "threshold_cent": 0,
+      "benefits": ["基础积分"],
+      "sign_in_bonus_points": 0,
+      "max_points_discount_percent": null,
+      "points_multiplier": 1.0,
+      "benefit_description": "可领取平台优惠券并参与基础积分活动"
+    },
+    {
+      "level": "silver",
+      "name": "银卡会员",
+      "threshold_cent": 50000,
+      "benefits": ["签到加成", "会员活动"],
+      "sign_in_bonus_points": 1,
+      "max_points_discount_percent": 12,
+      "points_multiplier": 1.1,
+      "benefit_description": "每日签到额外积分，订单积分抵扣上限提升"
+    }
   ],
   "sign_in_base_points": 2,
   "sign_in_streak_increment": 1,
@@ -397,7 +415,25 @@
 }
 ```
 
-说明：`points_to_yuan_rate=100` 表示 100 积分抵扣 1 元；`max_points_discount_percent=10` 表示单笔订单最多使用积分抵扣可抵扣基数的 10%。
+字段说明：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| level | string | 等级标识，需保持唯一 |
+| name | string | 用户可见等级名称 |
+| threshold_cent | number | 达到该等级所需成长值，单位分 |
+| benefits | string[] | 权益短标签，展示用 |
+| sign_in_bonus_points | number | 该等级每日签到额外积分，已生效 |
+| max_points_discount_percent | number/null | 该等级单笔积分抵扣上限覆盖值；为 null 时使用全局 `max_points_discount_percent`，已生效 |
+| points_multiplier | number | 积分倍率配置，当前用于展示与后续积分发放扩展预留，不改变现有种草奖励固定 1% 规则 |
+| benefit_description | string/null | 面向用户展示的权益说明 |
+
+说明：
+
+- `points_to_yuan_rate=100` 表示 100 积分抵扣 1 元。
+- 全局 `max_points_discount_percent=10` 表示单笔订单最多使用积分抵扣可抵扣基数的 10%。
+- 等级规则按 `threshold_cent` 升序保存；后端会兼容旧配置，缺失的新字段按默认值补齐。
+- 普通订单和拼团订单使用积分抵扣时，都会先解析用户当前会员等级，再使用等级专属抵扣上限或全局抵扣上限。
 
 ## 错误码
 

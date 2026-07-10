@@ -3,7 +3,7 @@
 ## 当前实现范围
 
 - 用户端已实现商品列表、商品详情、分类列表、店铺详情、店铺商品列表；商品详情基础版采用正文描述 + 多图画廊展示。
-- 管理端已实现分类创建、商家创建商品、商品列表、商品详情、编辑商品、编辑 SKU、上架、下架，以及商家维护本店名称、Logo 和公告。
+- 管理端已实现分类创建、商家创建商品、商品列表、商品详情、编辑商品、编辑 SKU、上架、下架、删除，以及商家维护本店名称、Logo 和公告。
 - 店铺必须通过商家入驻审核创建，平台不能手动创建店铺；审核通过时店铺名称和 Logo 来自入驻申请，店铺公告默认为空，由商家后续自行维护；商品由审核通过的商家账号创建，平台负责分类维护和商品监管。
 - 当前规则明确只有商家入驻需要事前审核；商品创建后默认 `on_sale`。平台保留上架/下架等管理权限。
 - 为兼容旧联调脚本，仍保留 `submit-audit` 和 `audit` 接口，但它们不再是必经流程。
@@ -248,6 +248,26 @@ SKU 字段：
 - `sort_order` 只表示同一父级下的展示顺序，数字越小越靠前。
 - 用户端和管理端商品列表按父级分类筛选时，会包含所有子孙分类下的商品。
 
+前端约定：用户端首页使用紧凑胶囊分类筛选条。默认只展示一级分类；选中父分类后才展开其直接子分类，继续选中子分类后再展开下一层；没有子分类时不显示下级区域。用户端只展示分类名称，不展示分类 ID。管理端可展示 ID、父级关系、完整路径和排序，便于运营维护。
+
+## 首页轮播 `GET /home/banners`
+
+公开接口，不需要登录。返回平台启用中的首页轮播图，按 `sort_order`、`id` 排序。
+
+响应字段：
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | number | 轮播图 ID |
+| title | string | 标题 |
+| subtitle | string/null | 副标题 |
+| image_url | string | 图片地址，来自上传接口 |
+| target_type | string | `none`/`product`/`url` |
+| target_id | number/null | `product` 时为商品 ID |
+| target_url | string/null | `url` 时为跳转链接 |
+| sort_order | number | 排序，数字越小越靠前 |
+| is_active | boolean | 是否展示；公开接口只返回 true |
+
 ## 管理端通用说明
 
 - 管理端接口前缀：`/api/v1/admin`
@@ -354,6 +374,46 @@ SKU 字段：
 - 分类下还有启用子分类时不能停用。
 - 分类下还有商品占用时不能停用，需要先迁移商品分类或处理商品。
 
+## 管理端首页轮播 `GET /admin/home-banners`
+
+权限：仅 `platform_operator`。返回全部轮播图，包含已停用数据，供平台运营维护。
+
+## 管理端首页轮播 `POST /admin/home-banners`
+
+权限：仅 `platform_operator`。
+
+请求：
+
+```json
+{
+  "title": "夏日好物专场",
+  "subtitle": "清爽生鲜与居家好物限时推荐",
+  "image_url": "/static/uploads/banner.jpg",
+  "target_type": "product",
+  "target_id": 12,
+  "target_url": null,
+  "sort_order": 10,
+  "is_active": true
+}
+```
+
+规则：
+
+- `image_url` 必填，来自上传接口返回值。
+- `target_type=none` 表示不跳转。
+- `target_type=product` 时必须填写存在的商品 ID；用户端点击跳转 `/products/{target_id}`。
+- `target_type=url` 时必须填写 `target_url`；用户端点击打开该链接。
+- 后端会按 `target_type` 清理无关字段：`none` 会清空 `target_id` 和 `target_url`，`product` 会清空 `target_url`，`url` 会清空 `target_id`。
+- 轮播图启停不影响商品状态，只影响首页展示。
+
+## 管理端首页轮播 `PUT /admin/home-banners/{id}`
+
+权限：仅 `platform_operator`。字段均可选，规则同创建接口。
+
+## 管理端首页轮播 `DELETE /admin/home-banners/{id}`
+
+权限：仅 `platform_operator`。物理删除轮播图配置，不删除上传文件。
+
 ## 管理端商品列表 `GET /admin/products`
 
 查询参数：
@@ -370,7 +430,7 @@ SKU 字段：
 | page | number | 否 | 页码 |
 | page_size | number | 否 | 每页数量 |
 
-说明：当前商品创建后默认 `on_sale`；管理端主要展示 `on_sale`、`off_sale` 等运营状态。旧数据或兼容接口可能仍出现 `draft`、`pending_audit`、`audit_rejected`，但它们不再是新商品发布的必经流程。列表项直接返回可运营字段，包括商品 ID、分类 ID、店铺 ID、状态、SKU ID、SKU 价格和库存，前端不应要求使用者通过接口返回排查区查 ID。
+说明：当前商品创建后默认 `on_sale`；管理端主要展示 `on_sale`、`off_sale` 等运营状态。删除后的 `deleted` 商品从管理端列表和用户端列表隐藏，历史订单、评价、售后等记录保留商品引用。旧数据或兼容接口可能仍出现 `draft`、`pending_audit`、`audit_rejected`，但它们不再是新商品发布的必经流程。列表项直接返回可运营字段，包括商品 ID、分类 ID、店铺 ID、状态、SKU ID、SKU 价格和库存，前端不应要求使用者通过接口返回排查区查 ID。
 
 响应列表项为 `ProductDetailResponse` 摘要结构，关键字段：
 
@@ -517,6 +577,7 @@ SKU 字段：
 | POST | `/admin/products/{product_id}/audit` | 兼容旧接口，通过为 `on_sale`，拒绝为 `off_sale` |
 | POST | `/admin/products/{product_id}/publish` | 上架商品，状态变为 `on_sale` |
 | POST | `/admin/products/{product_id}/unpublish` | 下架商品，状态变为 `off_sale` |
+| DELETE | `/admin/products/{product_id}` | 删除商品，状态变为 `deleted` |
 | POST | `/admin/products/batch-publish` | 批量上架商品，状态变为 `on_sale` |
 | POST | `/admin/products/batch-unpublish` | 批量下架商品，状态变为 `off_sale` |
 
@@ -524,6 +585,7 @@ SKU 字段：
 
 - 兼容审核接口：仅平台运营可调用 `/audit`；当前用于监管上架/下架，不作为商品发布前置流程。
 - 快速上架/下架：平台运营可操作全平台商品，商家运营只能操作本店商品。
+- 删除商品：平台运营可删除全平台商品，商家运营只能删除本店商品。删除后商品从用户端和管理端列表隐藏。
 - 批量上架/下架：平台运营可操作全平台商品，商家运营只能操作本店商品；只要列表中包含越权商品，接口会拒绝。
 
 审核请求：
@@ -544,6 +606,7 @@ SKU 字段：
 |---|---|
 | on_sale | 在售 |
 | off_sale | 下架 |
+| deleted | 已删除 |
 
 ## 错误码
 
