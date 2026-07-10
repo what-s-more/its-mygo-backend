@@ -3,8 +3,9 @@ import base64
 import json
 from decimal import Decimal
 from typing import Any
-from urllib.parse import parse_qsl
+from urllib.parse import parse_qsl, urlencode
 
+import httpx
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -51,15 +52,34 @@ class AlipayService:
         return result["qr_code"]
 
     async def query(self, payment: Payment) -> dict[str, Any]:
+        """异步查询支付宝交易状态。
+
+        直接通过 httpx 异步调用支付宝网关，避免 SDK 同步调用阻塞线程池。
+        当沙箱网关不可达时能被 asyncio 超时干净地取消，不会卡死后端。
+        """
         self._ensure_configured()
-        client, request_cls, model_cls = self._sdk_query_dependencies()
-        request = request_cls()
-        model = model_cls()
-        model.out_trade_no = payment.payment_no
-        request.biz_model = model
-        raw_response = await self._execute_request(client, request)
-        response = self._loads_response(raw_response)
-        result = self._extract_response_result(response, "alipay_trade_query_response")
+        biz_params: dict[str, str] = {
+            "out_trade_no": payment.payment_no,
+        }
+        params = self._build_signed_params("alipay.trade.query", biz_params)
+        try:
+            async with httpx.AsyncClient(timeout=settings.alipay_request_timeout_seconds) as client:
+                response = await client.post(settings.alipay_gateway_url, data=params)
+        except httpx.TimeoutException as exc:
+            raise AppException(
+                40005,
+                "支付宝沙箱网关请求超时，请检查本机网络、沙箱网关地址和后端 .env 支付宝配置",
+            ) from exc
+        except httpx.RequestError as exc:
+            raise AppException(
+                40005,
+                f"支付宝沙箱网关请求失败：{self._safe_error_message(exc)}",
+            ) from exc
+
+        response_dict = self._parse_alipay_response(response.text)
+        result = response_dict.get("alipay_trade_query_response", {})
+        if not isinstance(result, dict) or "code" not in result:
+            raise AppException(40005, "支付宝交易查询响应解析失败")
         if result.get("code") != "10000" and result.get("sub_code") == "ACQ.TRADE_NOT_EXIST":
             return result
         if result.get("code") != "10000":
@@ -110,17 +130,6 @@ class AlipayService:
         client = self._build_client(AlipayClientConfig, DefaultAlipayClient)
         return client, AlipayTradePrecreateRequest, AlipayTradePrecreateModel
 
-    def _sdk_query_dependencies(self):
-        try:
-            from alipay.aop.api.AlipayClientConfig import AlipayClientConfig
-            from alipay.aop.api.DefaultAlipayClient import DefaultAlipayClient
-            from alipay.aop.api.domain.AlipayTradeQueryModel import AlipayTradeQueryModel
-            from alipay.aop.api.request.AlipayTradeQueryRequest import AlipayTradeQueryRequest
-        except ImportError as exc:
-            raise AppException(40005, "缺少 alipay-sdk-python 依赖，请安装后再启用支付宝支付") from exc
-        client = self._build_client(AlipayClientConfig, DefaultAlipayClient)
-        return client, AlipayTradeQueryRequest, AlipayTradeQueryModel
-
     def _build_client(self, config_cls, client_cls):
         config = config_cls()
         config.server_url = settings.alipay_gateway_url
@@ -130,6 +139,39 @@ class AlipayService:
         config.charset = "utf-8"
         config.sign_type = "RSA2"
         return client_cls(alipay_client_config=config)
+
+    def _build_signed_params(self, method: str, biz_params: dict[str, Any]) -> dict[str, str]:
+        """构造调用支付宝网关的公共请求参数并签名。"""
+        all_params: dict[str, str] = {
+            "app_id": settings.alipay_app_id or "",
+            "method": method,
+            "format": "JSON",
+            "charset": "utf-8",
+            "sign_type": "RSA2",
+            "timestamp": __import__("datetime").datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "version": "1.0",
+            "biz_content": json.dumps(biz_params, ensure_ascii=False),
+        }
+        sign_content = "&".join(
+            f"{key}={value}"
+            for key, value in sorted(all_params.items())
+            if value != ""
+        )
+        private_key = self._load_private_key(settings.alipay_app_private_key or "")
+        signature = private_key.sign(
+            sign_content.encode("utf-8"),
+            padding.PKCS1v15(),
+            hashes.SHA256(),
+        )
+        all_params["sign"] = base64.b64encode(signature).decode("utf-8")
+        return all_params
+
+    def _parse_alipay_response(self, text: str) -> dict[str, Any]:
+        """解析支付宝网关返回的 JSON 响应，支持 sign 等顶层字段。"""
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise AppException(40005, f"支付宝响应解析失败：{text[:200]}") from exc
 
     def _loads_response(self, raw_response: str | dict[str, Any]) -> dict[str, Any]:
         if isinstance(raw_response, dict):
@@ -183,6 +225,13 @@ class AlipayService:
         if not stripped.startswith("-----BEGIN PUBLIC KEY-----"):
             stripped = f"-----BEGIN PUBLIC KEY-----\n{stripped}\n-----END PUBLIC KEY-----"
         return serialization.load_pem_public_key(stripped.encode("utf-8"))
+
+    def _load_private_key(self, private_key: str):
+        stripped = private_key.strip()
+        if not stripped.startswith("-----BEGIN RSA PRIVATE KEY-----") and not stripped.startswith("-----BEGIN PRIVATE KEY-----"):
+            # 支付宝沙箱密钥通常是 PKCS#1 裸格式
+            stripped = f"-----BEGIN RSA PRIVATE KEY-----\n{stripped}\n-----END RSA PRIVATE KEY-----"
+        return serialization.load_pem_private_key(stripped.encode("utf-8"), password=None)
 
 
 alipay_service = AlipayService()

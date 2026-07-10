@@ -1,6 +1,7 @@
 from collections import defaultdict
 
 from fastapi import WebSocket
+from starlette.websockets import WebSocketState
 
 
 class WebSocketManager:
@@ -16,7 +17,13 @@ class WebSocketManager:
 
     async def broadcast(self, channel: str, message: dict) -> None:
         for websocket in list(self._connections[channel]):
-            await websocket.send_json(message)
+            if websocket.client_state != WebSocketState.CONNECTED:
+                self.disconnect(channel, websocket)
+                continue
+            try:
+                await websocket.send_json(message)
+            except Exception:
+                self.disconnect(channel, websocket)
 
 
 websocket_manager = WebSocketManager()

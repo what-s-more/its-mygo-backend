@@ -26,11 +26,15 @@ class CartBatchDeleteRequest(BaseModel):
 class CartItemResponse(BaseModel):
     sku_id: int
     product_id: int
+    merchant_id: int
+    merchant_name: str
+    merchant_logo_url: str | None = None
     product_name: str
     sku_name: str
     price_cent: int
     quantity: int
     checked: bool
+    cover_url: str | None = None
     source_post_id: int | None = None
     source_label: str | None = None
     invalid_reason: str | None = None
@@ -136,6 +140,7 @@ class OrderItemResponse(BaseModel):
     sku_id: int
     product_name: str
     sku_name: str
+    cover_url: str | None = None
     unit_price_cent: int
     quantity: int
     total_amount_cent: int
@@ -148,6 +153,8 @@ class OrderResponse(BaseModel):
     order_no: str
     payment_id: int
     merchant_id: int
+    merchant_name: str
+    merchant_logo_url: str | None = None
     status: str
     total_amount_cent: int
     pay_amount_cent: int
@@ -163,6 +170,7 @@ class OrderResponse(BaseModel):
     shipping_address: ShippingAddressSnapshot | None = None
     logistics_company: str | None = None
     tracking_no: str | None = None
+    created_at: str | None = None
     shipped_at: str | None = None
     received_at: str | None = None
     items: list[OrderItemResponse]

@@ -56,11 +56,13 @@ class Product(Base):
     name: Mapped[str] = mapped_column(String(120), index=True)
     description: Mapped[str] = mapped_column(Text, default="")
     cover_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    detail_image_urls: Mapped[str] = mapped_column(Text, default="[]")
     status: Mapped[str] = mapped_column(String(30), default="draft", index=True)
     sales_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     merchant: Mapped[Merchant] = relationship(back_populates="products")
+    category: Mapped[Category | None] = relationship()
     skus: Mapped[list["Sku"]] = relationship(back_populates="product", cascade="all, delete-orphan")
     images: Mapped[list["ProductImage"]] = relationship(back_populates="product", cascade="all, delete-orphan")
 
@@ -103,3 +105,19 @@ class ProductImage(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
     product: Mapped[Product] = relationship(back_populates="images")
+
+
+class HomeBanner(Base):
+    __tablename__ = "home_banner"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(80))
+    subtitle: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    image_url: Mapped[str] = mapped_column(String(255))
+    target_type: Mapped[str] = mapped_column(String(30), default="none")
+    target_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_url: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

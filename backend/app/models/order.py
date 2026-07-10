@@ -75,6 +75,7 @@ class Order(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     payment: Mapped[Payment] = relationship(back_populates="orders")
+    merchant: Mapped["Merchant"] = relationship()
     items: Mapped[list["OrderItem"]] = relationship(back_populates="order", cascade="all, delete-orphan")
 
 
@@ -92,6 +93,7 @@ class OrderItem(Base):
     total_amount_cent: Mapped[int] = mapped_column(Integer)
 
     order: Mapped[Order] = relationship(back_populates="items")
+    product: Mapped["Product"] = relationship()
 
 
 class ProductReview(Base):

@@ -127,6 +127,10 @@ class MemberLevelRule(BaseModel):
     name: str = Field(min_length=1, max_length=30)
     threshold_cent: int = Field(ge=0)
     benefits: list[str] = Field(default_factory=list, max_length=20)
+    sign_in_bonus_points: int = Field(default=0, ge=0, le=10000)
+    max_points_discount_percent: int | None = Field(default=None, ge=0, le=100)
+    points_multiplier: float = Field(default=1.0, ge=0, le=10)
+    benefit_description: str | None = Field(default=None, max_length=255)
 
 
 class MemberPointsConfig(BaseModel):

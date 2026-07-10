@@ -32,12 +32,14 @@ class UserService:
         sign_in = await self._get_sign_in_by_date(db, user.id, today)
         latest_sign_in = await self._get_latest_sign_in(db, user.id)
         current_streak = latest_sign_in.streak_days if latest_sign_in else 0
+        growth_value = await self._calculate_growth_value_cent(db, user.id)
+        level_rule = self._resolve_level(config, growth_value)
         return PointsAccountResponse(
             user_id=user.id,
             points=user.points,
             sign_in_today=sign_in is not None,
             current_streak_days=current_streak,
-            today_reward_points=self._calculate_sign_in_reward(config, current_streak + (0 if sign_in else 1)),
+            today_reward_points=self._calculate_sign_in_reward(config, level_rule, current_streak + (0 if sign_in else 1)),
         )
 
     async def get_member_level(self, db: AsyncSession, user: User) -> MemberLevelResponse:
@@ -56,7 +58,7 @@ class UserService:
             next_level=next_rule.level if next_rule else None,
             next_level_name=next_rule.name if next_rule else None,
             next_level_need_cent=max(0, next_rule.threshold_cent - growth_value) if next_rule else None,
-            benefits=level_rule.benefits,
+            benefits=self._format_level_benefits(level_rule),
         )
 
     async def sign_in(self, db: AsyncSession, user: User) -> SignInResponse:
@@ -74,7 +76,9 @@ class UserService:
         yesterday = today - timedelta(days=1)
         yesterday_sign_in = await self._get_sign_in_by_date(db, user.id, yesterday)
         streak_days = (yesterday_sign_in.streak_days + 1) if yesterday_sign_in else 1
-        reward_points = self._calculate_sign_in_reward(config, streak_days)
+        growth_value = await self._calculate_growth_value_cent(db, user.id)
+        level_rule = self._resolve_level(config, growth_value)
+        reward_points = self._calculate_sign_in_reward(config, level_rule, streak_days)
         sign_in = UserSignIn(
             user_id=user.id,
             sign_date=today,
@@ -123,8 +127,12 @@ class UserService:
         )
         return result.scalar_one_or_none()
 
-    def _calculate_sign_in_reward(self, config: MemberPointsConfig, streak_days: int) -> int:
-        reward = config.sign_in_base_points + max(0, streak_days - 1) * config.sign_in_streak_increment
+    def _calculate_sign_in_reward(self, config: MemberPointsConfig, level_rule: MemberLevelRule, streak_days: int) -> int:
+        reward = (
+            config.sign_in_base_points
+            + max(0, streak_days - 1) * config.sign_in_streak_increment
+            + level_rule.sign_in_bonus_points
+        )
         return min(config.sign_in_max_points, reward)
 
     def _resolve_level(self, config: MemberPointsConfig, growth_value_cent: int) -> MemberLevelRule:
@@ -140,6 +148,18 @@ class UserService:
             if growth_value_cent < rule.threshold_cent:
                 return rule
         return None
+
+    def _format_level_benefits(self, level_rule: MemberLevelRule) -> list[str]:
+        benefits = list(level_rule.benefits)
+        if level_rule.sign_in_bonus_points:
+            benefits.append(f"每日签到额外 +{level_rule.sign_in_bonus_points} 积分")
+        if level_rule.max_points_discount_percent is not None:
+            benefits.append(f"单笔积分最高抵扣 {level_rule.max_points_discount_percent}%")
+        if level_rule.points_multiplier != 1:
+            benefits.append(f"积分倍率 x{level_rule.points_multiplier:g}")
+        if level_rule.benefit_description:
+            benefits.append(level_rule.benefit_description)
+        return benefits
 
 
 user_service = UserService()

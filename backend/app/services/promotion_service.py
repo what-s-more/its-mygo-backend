@@ -298,6 +298,7 @@ class PromotionService:
         only_available: bool,
         merchant_id: int | None = None,
         owner_only: bool = False,
+        user_id: int | None = None,
     ) -> list[CouponTemplateResponse]:
         statement = select(CouponTemplate).order_by(CouponTemplate.created_at.desc())
         if only_available:
@@ -314,7 +315,13 @@ class PromotionService:
                 templates = [template for template in templates if template.owner_merchant_id == merchant_id]
             else:
                 templates = await self._filter_templates_for_merchant(db, templates, merchant_id)
-        return [self._template_to_response(template) for template in templates]
+        claimed_ids: set[int] = set()
+        if user_id is not None:
+            claimed_result = await db.execute(
+                select(UserCoupon.coupon_template_id).where(UserCoupon.user_id == user_id)
+            )
+            claimed_ids = {row[0] for row in claimed_result.all()}
+        return [self._template_to_response(template, template.id in claimed_ids) for template in templates]
 
     async def get_coupon_template(self, db: AsyncSession, template_id: int) -> CouponTemplateResponse:
         template = await self._get_template(db, template_id)
@@ -691,7 +698,7 @@ class PromotionService:
             template=self._template_to_response(template),
         )
 
-    def _template_to_response(self, template: CouponTemplate) -> CouponTemplateResponse:
+    def _template_to_response(self, template: CouponTemplate, received: bool = False) -> CouponTemplateResponse:
         return CouponTemplateResponse(
             id=template.id,
             name=template.name,
@@ -708,6 +715,7 @@ class PromotionService:
             status=template.status,
             valid_from=template.valid_from,
             valid_to=template.valid_to,
+            received=received,
         )
 
     def _load_scope_ids(self, template: CouponTemplate) -> list[int]:

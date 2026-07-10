@@ -6,14 +6,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppException, ForbiddenException
 from app.core.security import hash_password
-from app.models.community import CommunityComment, CommunityLike, CommunityPost
+from app.models.community import CommunityComment, CommunityLike, CommunityPost, CommunityPostFavorite
 from app.models.order import Order, OrderItem
+from app.models.product import Merchant
 from app.models.user import AdminUser, User
 from app.schemas.community import (
     AuthorSummary,
     CommentCreateRequest,
     CommentResponse,
     CommunityUserProfileResponse,
+    FavoritePostItem,
     PostCreateRequest,
     PostResponse,
     TopicResponse,
@@ -42,7 +44,13 @@ class CommunityService:
             product_ids=product_ids,
             topic_tags=payload.topic_tags,
         )
-        post = await self._create_post_record(db, author, admin_payload, product_ids=product_ids)
+        post = await self._create_post_record(
+            db,
+            author,
+            admin_payload,
+            product_ids=product_ids,
+            merchant_id=admin.merchant_id if admin.role == "merchant_operator" else None,
+        )
         await db.commit()
         await db.refresh(post)
         return await self._post_to_response(db, post)
@@ -54,6 +62,7 @@ class CommunityService:
         payload: PostCreateRequest,
         *,
         product_ids: list[int],
+        merchant_id: int | None = None,
     ) -> CommunityPost:
         if payload.type == "grass" and not product_ids:
             raise AppException(40001, "种草帖必须关联至少一个已购买商品")
@@ -61,6 +70,7 @@ class CommunityService:
             await self._ensure_user_bought_products(db, user.id, product_ids)
         post = CommunityPost(
             user_id=user.id,
+            merchant_id=merchant_id,
             type=payload.type,
             section=payload.section,
             title=payload.title,
@@ -82,6 +92,7 @@ class CommunityService:
         section: str | None = None,
         author_id: int | None = None,
         topic: str | None = None,
+        current_user_id: int | None = None,
         page: int,
         page_size: int,
     ) -> tuple[list[PostResponse], int]:
@@ -109,7 +120,7 @@ class CommunityService:
             for post in result.scalars()
             if not topic or topic.strip() in set(json.loads(post.topic_tags or "[]"))
         ]
-        return [await self._post_to_response(db, post) for post in posts], len(all_posts)
+        return [await self._post_to_response(db, post, current_user_id=current_user_id) for post in posts], len(all_posts)
 
     async def get_user_profile(self, db: AsyncSession, user_id: int) -> CommunityUserProfileResponse:
         user = await db.get(User, user_id)
@@ -123,6 +134,7 @@ class CommunityService:
             db,
             status="published",
             author_id=user_id,
+            current_user_id=user_id,
             page=1,
             page_size=6,
         )
@@ -146,11 +158,11 @@ class CommunityService:
         sorted_topics = sorted(counts.items(), key=lambda item: (-item[1], item[0]))[:limit]
         return [TopicResponse(name=name, post_count=count) for name, count in sorted_topics]
 
-    async def get_post(self, db: AsyncSession, post_id: int) -> PostResponse:
+    async def get_post(self, db: AsyncSession, post_id: int, current_user_id: int | None = None) -> PostResponse:
         post = await self._get_post(db, post_id)
         if post.status != "published":
             raise AppException(40004, "帖子不存在", 404)
-        return await self._post_to_response(db, post)
+        return await self._post_to_response(db, post, current_user_id=current_user_id)
 
     async def delete_own_post(self, db: AsyncSession, user: User, post_id: int) -> None:
         post = await self._get_post(db, post_id)
@@ -188,6 +200,52 @@ class CommunityService:
             await db.delete(like)
         await db.commit()
         return {"liked": liked, "like_count": await self._count_likes(db, post_id)}
+
+    async def toggle_favorite(self, db: AsyncSession, user: User, post_id: int) -> dict:
+        post = await self._get_post(db, post_id)
+        if post.status != "published":
+            raise AppException(40008, "当前帖子状态不允许收藏")
+        result = await db.execute(
+            select(CommunityPostFavorite).where(
+                CommunityPostFavorite.post_id == post_id,
+                CommunityPostFavorite.user_id == user.id,
+            )
+        )
+        favorite = result.scalar_one_or_none()
+        favorited = favorite is None
+        if favorite is None:
+            db.add(CommunityPostFavorite(post_id=post_id, user_id=user.id))
+        else:
+            await db.delete(favorite)
+        await db.commit()
+        return {"favorited": favorited, "favorite_count": await self._count_favorites(db, post_id)}
+
+    async def list_favorite_posts(
+        self,
+        db: AsyncSession,
+        user: User,
+        *,
+        page: int,
+        page_size: int,
+    ) -> tuple[list[FavoritePostItem], int]:
+        statement = (
+            select(CommunityPostFavorite, CommunityPost)
+            .join(CommunityPost, CommunityPostFavorite.post_id == CommunityPost.id)
+            .where(CommunityPostFavorite.user_id == user.id, CommunityPost.status == "published")
+            .order_by(CommunityPostFavorite.created_at.desc())
+        )
+        all_result = await db.execute(statement)
+        all_items = list(all_result.all())
+        result = await db.execute(statement.offset((page - 1) * page_size).limit(page_size))
+        items = []
+        for favorite, post in result.all():
+            items.append(
+                FavoritePostItem(
+                    post=await self._post_to_response(db, post, current_user_id=user.id),
+                    favorited_at=favorite.created_at,
+                )
+            )
+        return items, len(all_items)
 
     async def create_comment(
         self,
@@ -281,10 +339,25 @@ class CommunityService:
             raise AppException(40004, "评论不存在", 404)
         return comment
 
-    async def _post_to_response(self, db: AsyncSession, post: CommunityPost) -> PostResponse:
+    async def _post_to_response(
+        self,
+        db: AsyncSession,
+        post: CommunityPost,
+        current_user_id: int | None = None,
+    ) -> PostResponse:
         author = await db.get(User, post.user_id)
+        display_author = self._author_to_summary(author)
+        if post.merchant_id is not None:
+            merchant = await db.get(Merchant, post.merchant_id)
+            if merchant is not None:
+                display_author = AuthorSummary(
+                    id=author.id if author is not None else 0,
+                    nickname=merchant.name,
+                    avatar_url=merchant.logo_url,
+                )
         return PostResponse(
             id=post.id,
+            merchant_id=post.merchant_id,
             type=post.type,
             section=post.section,
             title=post.title,
@@ -293,8 +366,10 @@ class CommunityService:
             product_ids=json.loads(post.product_ids or "[]"),
             topic_tags=json.loads(post.topic_tags or "[]"),
             status=post.status,
-            author=self._author_to_summary(author),
+            author=display_author,
             like_count=await self._count_likes(db, post.id),
+            favorite_count=await self._count_favorites(db, post.id),
+            favorited=await self._is_favorited(db, current_user_id, post.id),
             comment_count=await self._count_comments(db, post.id),
             created_at=post.created_at,
         )
@@ -318,6 +393,23 @@ class CommunityService:
     async def _count_likes(self, db: AsyncSession, post_id: int) -> int:
         result = await db.execute(select(func.count(CommunityLike.id)).where(CommunityLike.post_id == post_id))
         return int(result.scalar_one())
+
+    async def _count_favorites(self, db: AsyncSession, post_id: int) -> int:
+        result = await db.execute(
+            select(func.count(CommunityPostFavorite.id)).where(CommunityPostFavorite.post_id == post_id)
+        )
+        return int(result.scalar_one())
+
+    async def _is_favorited(self, db: AsyncSession, user_id: int | None, post_id: int) -> bool:
+        if user_id is None:
+            return False
+        result = await db.execute(
+            select(CommunityPostFavorite.id).where(
+                CommunityPostFavorite.post_id == post_id,
+                CommunityPostFavorite.user_id == user_id,
+            )
+        )
+        return result.scalar_one_or_none() is not None
 
     async def _count_comments(self, db: AsyncSession, post_id: int) -> int:
         result = await db.execute(

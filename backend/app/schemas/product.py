@@ -63,6 +63,42 @@ class CategoryResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class HomeBannerCreateRequest(BaseModel):
+    title: str = Field(default="", max_length=80)
+    subtitle: str | None = Field(default=None, max_length=160)
+    image_url: str = Field(min_length=1, max_length=255)
+    target_type: str = Field(default="none", pattern="^(none|product|url)$")
+    target_id: int | None = Field(default=None, ge=1)
+    target_url: str | None = Field(default=None, max_length=255)
+    sort_order: int = 0
+    is_active: bool = True
+
+
+class HomeBannerUpdateRequest(BaseModel):
+    title: str | None = Field(default=None, max_length=80)
+    subtitle: str | None = Field(default=None, max_length=160)
+    image_url: str | None = Field(default=None, min_length=1, max_length=255)
+    target_type: str | None = Field(default=None, pattern="^(none|product|url)$")
+    target_id: int | None = Field(default=None, ge=1)
+    target_url: str | None = Field(default=None, max_length=255)
+    sort_order: int | None = None
+    is_active: bool | None = None
+
+
+class HomeBannerResponse(BaseModel):
+    id: int
+    title: str
+    subtitle: str | None = None
+    image_url: str
+    target_type: str
+    target_id: int | None = None
+    target_url: str | None = None
+    sort_order: int
+    is_active: bool
+
+    model_config = {"from_attributes": True}
+
+
 class SkuCreateRequest(BaseModel):
     name: str = Field(min_length=1, max_length=80)
     price_cent: int = Field(ge=0)
@@ -95,6 +131,7 @@ class ProductCreateRequest(BaseModel):
     description: str = ""
     cover_url: str | None = None
     image_urls: list[str] = Field(default_factory=list)
+    detail_image_urls: list[str] = Field(default_factory=list)
     skus: list[SkuCreateRequest]
 
 
@@ -104,6 +141,7 @@ class ProductUpdateRequest(BaseModel):
     description: str | None = None
     cover_url: str | None = None
     image_urls: list[str] | None = None
+    detail_image_urls: list[str] | None = None
 
 
 class ProductListItem(BaseModel):
@@ -130,8 +168,11 @@ class ProductDetailResponse(BaseModel):
     description: str
     cover_url: str | None = None
     category_id: int | None = None
+    category_name: str | None = None
     status: str
+    sales_count: int = 0
     images: list[str]
+    detail_images: list[str] = Field(default_factory=list)
     merchant: MerchantResponse
     skus: list[SkuResponse]
     review_summary: dict = Field(default_factory=lambda: {"count": 0, "average_score": None})

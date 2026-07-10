@@ -11,6 +11,7 @@ class CommunityPost(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
+    merchant_id: Mapped[int | None] = mapped_column(ForeignKey("merchant.id"), nullable=True, index=True)
     type: Mapped[str] = mapped_column(String(30), default="normal", index=True)
     section: Mapped[str] = mapped_column(String(30), default="square", index=True)
     title: Mapped[str] = mapped_column(String(120))
@@ -41,6 +42,16 @@ class CommunityComment(Base):
 class CommunityLike(Base):
     __tablename__ = "community_like"
     __table_args__ = (UniqueConstraint("post_id", "user_id", name="uq_community_like_post_user"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    post_id: Mapped[int] = mapped_column(ForeignKey("community_post.id"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("user.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class CommunityPostFavorite(Base):
+    __tablename__ = "community_post_favorite"
+    __table_args__ = (UniqueConstraint("post_id", "user_id", name="uq_community_post_favorite_post_user"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     post_id: Mapped[int] = mapped_column(ForeignKey("community_post.id"), index=True)

@@ -42,6 +42,7 @@ class CommentResponse(BaseModel):
 
 class PostResponse(BaseModel):
     id: int
+    merchant_id: int | None = None
     type: str
     section: str
     title: str
@@ -52,6 +53,8 @@ class PostResponse(BaseModel):
     status: str
     author: AuthorSummary
     like_count: int
+    favorite_count: int
+    favorited: bool = False
     comment_count: int
     created_at: datetime
 
@@ -73,3 +76,13 @@ class TopicResponse(BaseModel):
 class LikeToggleResponse(BaseModel):
     liked: bool
     like_count: int
+
+
+class FavoriteToggleResponse(BaseModel):
+    favorited: bool
+    favorite_count: int
+
+
+class FavoritePostItem(BaseModel):
+    post: PostResponse
+    favorited_at: datetime

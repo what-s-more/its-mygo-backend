@@ -54,6 +54,7 @@ class CouponTemplateResponse(BaseModel):
     status: str
     valid_from: datetime | None = None
     valid_to: datetime | None = None
+    received: bool = False
 
     model_config = {"from_attributes": True}
 
